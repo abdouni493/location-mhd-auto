@@ -21,7 +21,7 @@ async function testInsert() {
       notes: 'Test inspection'
     };
     
-    const response = await fetch('http://localhost:4000/api/from/inspections/insert', {
+    const response = await fetch(`${process.env.VITE_API_URL || process.env.API_URL || 'http://localhost:4000'}/api/from/inspections/insert`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rows: [inspection] })

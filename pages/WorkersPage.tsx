@@ -147,7 +147,7 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
       setLoading(true);
       setError(null);
 
-      const response = await fetch('http://localhost:4000/api/from/workers/select', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/from/workers/select`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ columns: '*' })
@@ -191,7 +191,7 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
   const handleDeleteWorker = async (id: string) => {
     try {
       setSaving(true);
-      const response = await fetch('http://localhost:4000/api/from/workers/delete', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/from/workers/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -239,7 +239,7 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
       let response;
       if (editingWorker?.id) {
         // Update existing worker
-        response = await fetch('http://localhost:4000/api/from/workers/update', {
+        response = await fetch(`${import.meta.env.VITE_API_URL}/api/from/workers/update`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -249,7 +249,7 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
         });
       } else {
         // Insert new worker
-        response = await fetch('http://localhost:4000/api/from/workers/insert', {
+        response = await fetch(`${import.meta.env.VITE_API_URL}/api/from/workers/insert`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -299,7 +299,7 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
         updateData.absences = (worker.absences || 0) + 1;
       }
 
-      const response = await fetch('http://localhost:4000/api/from/workers/update', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/from/workers/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
