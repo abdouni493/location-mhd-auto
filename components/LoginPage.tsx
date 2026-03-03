@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Language } from '../types';
 import { TRANSLATIONS } from '../constants';
 import { supabase } from '../lib/supabase';
+import { apiFetch } from '../lib/api';
 import GradientButton from './GradientButton';
 
 interface LoginPageProps {
