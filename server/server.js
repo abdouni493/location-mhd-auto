@@ -336,7 +336,16 @@ app.post('/api/from/:table/insert', async (req, res) => {
   if (!isSafeIdentifier(table)) return res.status(400).json({ data: null, error: { message: 'Invalid table' } });
   if (!rows || !Array.isArray(rows) || rows.length === 0) return res.json({ data: [], error: null });
   try {
-    const { text, values } = buildInsertQuery(table, rows);
+    // For workers, clean up blob URLs in photo field
+    const cleanedRows = rows.map(row => {
+      const cleanRow = { ...row };
+      if (table === 'workers' && cleanRow.photo && cleanRow.photo.startsWith('blob:')) {
+        delete cleanRow.photo;
+      }
+      return cleanRow;
+    });
+    
+    const { text, values } = buildInsertQuery(table, cleanedRows);
     const start = Date.now();
     const r = await pool.query(text, values);
     const duration = Date.now() - start;
@@ -366,7 +375,13 @@ app.post('/api/from/:table/update', async (req, res) => {
   if (!isSafeIdentifier(table)) return res.status(400).json({ data: null, error: { message: 'Invalid table' } });
   if (!data || !where || !where.col) return res.status(400).json({ data: null, error: { message: 'Invalid payload' } });
   try {
-    const { text, values } = buildUpdateQuery(table, data, where.col);
+    // For workers, exclude photo field if it's a blob URL
+    const cleanData = { ...data };
+    if (table === 'workers' && cleanData.photo && cleanData.photo.startsWith('blob:')) {
+      delete cleanData.photo;
+    }
+    
+    const { text, values } = buildUpdateQuery(table, cleanData, where.col);
     const start = Date.now();
     const r = await pool.query(text, [...values, where.val]);
     const duration = Date.now() - start;
@@ -379,6 +394,11 @@ app.post('/api/from/:table/update', async (req, res) => {
     res.json({ data: r.rows, error: null, duration_ms: duration });
   } catch (err) {
     console.error(`[UPDATE ERROR] ${table}:`, err.message);
+    console.error(`[UPDATE ERROR DETAILS]`, {
+      code: err.code,
+      detail: err.detail,
+      hint: err.hint
+    });
     res.status(500).json({ data: null, error: { message: err.message || err } });
   }
 });

@@ -344,13 +344,8 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
                 onChange={async (e) => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    try {
-                      const dataUrl = await fileToDataUrl(file);
-                      setPhotoPreview(dataUrl);
-                    } catch (err) {
-                      console.error('Failed to read image file:', err);
-                      setPhotoPreview(URL.createObjectURL(file));
-                    }
+                    const dataUrl = await fileToDataUrl(file);
+                    setPhotoPreview(dataUrl);
                   }
                 }}
                 className="hidden"
