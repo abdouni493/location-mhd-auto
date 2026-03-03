@@ -4,7 +4,16 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 export async function apiFetch(endpoint: string, options?: RequestInit) {
   const url = `${API_URL}${endpoint}`;
-  return fetch(url, options);
+  try {
+    const response = await fetch(url, options);
+    return response;
+  } catch (error: any) {
+    // Provide helpful error message for connection issues
+    if (error.message.includes('Failed to fetch') || error.message.includes('ERR_CONNECTION_REFUSED')) {
+      throw new Error(`Backend server not responding at ${API_URL}. Make sure the server is running (npm run server)`);
+    }
+    throw error;
+  }
 }
 
 export async function apiPost(endpoint: string, body: any, options?: RequestInit) {

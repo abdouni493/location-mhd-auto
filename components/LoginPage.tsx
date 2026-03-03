@@ -52,7 +52,16 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, lang, onLanguageToggle }
       }
     } catch (err: any) {
       console.error("Login error:", err);
-      setError(err.message || (lang === 'fr' ? "Identifiants invalides" : "بيانات الدخول غير صحيحة"));
+      let errorMessage = err.message || (lang === 'fr' ? "Identifiants invalides" : "بيانات الدخول غير صحيحة");
+      
+      // Check if it's a backend connection error
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('ERR_CONNECTION_REFUSED') || err.status === 0) {
+        errorMessage = lang === 'fr' 
+          ? "Impossible de se connecter au serveur. Assurez-vous que le serveur est en cours d'exécution (npm run server)"
+          : "لا يمكن الاتصال بالخادم. تأكد من تشغيل الخادم (npm run server)";
+      }
+      
+      setError(errorMessage);
       setLoading(false);
     }
   };
