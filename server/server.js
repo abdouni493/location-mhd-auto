@@ -336,21 +336,26 @@ app.post('/api/from/:table/insert', async (req, res) => {
   if (!isSafeIdentifier(table)) return res.status(400).json({ data: null, error: { message: 'Invalid table' } });
   if (!rows || !Array.isArray(rows) || rows.length === 0) return res.json({ data: [], error: null });
   try {
-    // For workers, clean up blob URLs in photo field
+    // For workers, clean up blob URLs and invalid photo data
     const cleanedRows = rows.map(row => {
       const cleanRow = { ...row };
-      if (table === 'workers' && cleanRow.photo && cleanRow.photo.startsWith('blob:')) {
-        delete cleanRow.photo;
+      if (table === 'workers' && cleanRow.photo) {
+        // Remove blob URLs or invalid photo data
+        if (cleanRow.photo.startsWith('blob:') || cleanRow.photo === 'null' || cleanRow.photo === '') {
+          delete cleanRow.photo;
+        }
       }
       return cleanRow;
     });
+    
+    console.log(`[INSERT PROCESSING] table=${table}, rowCount=${cleanedRows.length}`);
     
     const { text, values } = buildInsertQuery(table, cleanedRows);
     const start = Date.now();
     const r = await pool.query(text, values);
     const duration = Date.now() - start;
     
-    console.log(`[INSERT] ${table}: Inserted ${r.rowCount} rows in ${duration}ms`);
+    console.log(`[INSERT SUCCESS] ${table}: Inserted ${r.rowCount} rows in ${duration}ms`);
     
     // Invalidate cache for this table
     clearCache(table);
@@ -375,18 +380,26 @@ app.post('/api/from/:table/update', async (req, res) => {
   if (!isSafeIdentifier(table)) return res.status(400).json({ data: null, error: { message: 'Invalid table' } });
   if (!data || !where || !where.col) return res.status(400).json({ data: null, error: { message: 'Invalid payload' } });
   try {
-    // For workers, exclude photo field if it's a blob URL
+    // For workers, clean photo data
     const cleanData = { ...data };
-    if (table === 'workers' && cleanData.photo && cleanData.photo.startsWith('blob:')) {
-      delete cleanData.photo;
+    if (table === 'workers' && cleanData.photo) {
+      // Remove blob URLs or invalid photo data
+      if (cleanData.photo.startsWith('blob:') || cleanData.photo === 'null' || cleanData.photo === '') {
+        delete cleanData.photo;
+      }
     }
     
+    console.log(`[UPDATE PROCESSING] table=${table}, where=${JSON.stringify(where)}, dataKeys=${Object.keys(cleanData)}`);
+    
     const { text, values } = buildUpdateQuery(table, cleanData, where.col);
+    console.log(`[UPDATE QUERY] ${text.substring(0, 200)}...`);
+    console.log(`[UPDATE VALUES] ${values.map(v => typeof v === 'string' ? v.substring(0, 50) : v).join(', ')}`);
+    
     const start = Date.now();
     const r = await pool.query(text, [...values, where.val]);
     const duration = Date.now() - start;
     
-    console.log(`[UPDATE] ${table}: Updated ${r.rowCount} rows in ${duration}ms`);
+    console.log(`[UPDATE SUCCESS] ${table}: Updated ${r.rowCount} rows in ${duration}ms`);
     
     // Invalidate cache for this table
     clearCache(table);
@@ -397,7 +410,8 @@ app.post('/api/from/:table/update', async (req, res) => {
     console.error(`[UPDATE ERROR DETAILS]`, {
       code: err.code,
       detail: err.detail,
-      hint: err.hint
+      hint: err.hint,
+      position: err.position
     });
     res.status(500).json({ data: null, error: { message: err.message || err } });
   }
