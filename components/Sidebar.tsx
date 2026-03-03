@@ -12,10 +12,14 @@ interface SidebarProps {
   user: User;
 }
 
+import { useState, useEffect } from 'react';
+
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, activeId, onNavigate, lang, onToggle, user }) => {
   const isRtl = lang === 'ar';
   const isAdmin = user.role === 'admin';
   const isDriver = user.role === 'driver';
+  const [agencyName, setAgencyName] = useState<string | null>(null);
+  const [agencyLogo, setAgencyLogo] = useState<string | null>(null);
 
   // Filter menu items based on role
   const filteredMenuItems = MENU_ITEMS.filter(item => {
@@ -42,6 +46,41 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, activeId, onNavigate, lang, o
     });
   }
 
+  useEffect(() => {
+    // initialize from localStorage
+    try {
+      const raw = window.localStorage.getItem('app.system_config');
+      if (raw) {
+        const obj = JSON.parse(raw);
+        if (obj.storeName) setAgencyName(obj.storeName);
+        if (obj.logo_url) setAgencyLogo(obj.logo_url);
+      }
+    } catch (e) {}
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'app.system_config' && e.newValue) {
+        try {
+          const obj = JSON.parse(e.newValue);
+          if (obj.storeName) setAgencyName(obj.storeName);
+          if (obj.logo_url) setAgencyLogo(obj.logo_url);
+        } catch (err) {}
+      }
+    };
+
+    const onCustom = (ev: any) => {
+      const obj = ev?.detail;
+      if (obj?.storeName) setAgencyName(obj.storeName);
+      if (obj?.logo_url) setAgencyLogo(obj.logo_url);
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('app:config:update', onCustom as EventListener);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('app:config:update', onCustom as EventListener);
+    };
+  }, []);
+
   return (
     <aside 
       className={`
@@ -53,9 +92,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, activeId, onNavigate, lang, o
       `}
     >
       <div className="flex items-center justify-between h-20 px-6 border-b border-gray-100 min-w-[288px] whitespace-nowrap">
-        <span className={`text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-red-600 ${isRtl ? 'font-arabic' : ''}`}>
-          DRIVEFLOW
-        </span>
+        <div className="flex items-center gap-3">
+          {agencyLogo ? (
+            <img src={agencyLogo} alt="logo" className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-sm" />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-600 to-red-600 flex items-center justify-center text-white text-lg font-black shadow-lg">DF</div>
+          )}
+          <div className={`text-sm font-black ${isRtl ? 'font-arabic' : ''}`}>{agencyName || 'DRIVEFLOW'}</div>
+        </div>
         <button 
           onClick={onToggle}
           className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-400 transition-all duration-300"

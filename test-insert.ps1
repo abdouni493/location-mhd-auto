@@ -23,9 +23,7 @@ Write-Host "Request body:"
 Write-Host $body
 Write-Host ""
 
-$api = $env:VITE_API_URL
-if (-not $api) { $api = 'http://localhost:4000' }
-$response = Invoke-WebRequest -Uri ($api + '/api/from/inspections/insert') `
+$response = Invoke-WebRequest -Uri http://localhost:4000/api/from/inspections/insert `
     -Method POST `
     -Headers $headers `
     -Body $body

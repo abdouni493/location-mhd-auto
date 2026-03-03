@@ -234,7 +234,7 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
     mileage: 0, fuel: 'plein' as any, date: new Date().toISOString().slice(0, 16),
     location: '', notes: '', extraKmCost: 0, extraFuelCost: 0, withTva: false, tvaPercentage: 19
   });
-  const [selectedDocType, setSelectedDocType] = useState<'devis'|'contrat'|'versement'|'facture'|null>(null);
+  const [selectedDocType, setSelectedDocType] = useState<'devis'|'contrat'|'versement'|'facture'|'engagement'|null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
   const [termDocsLeft, setTermDocsLeft] = useState<{ label: string; url?: string; left: boolean }[]>([]);
 
@@ -992,6 +992,15 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
 
   return (
     <div className={`p-4 md:p-12 animate-fade-in ${isRtl ? 'font-arabic text-right' : ''}`}>
+      <style>{`\
+        /* Print helpers: hide controls and show only printable preview when user prints from browser */\
+        @media print {\
+          .no-print { display: none !important; }\
+          .print-only { display: block !important; }\
+          /* Keep printable area full page */\
+          .print-only { position: fixed; left:0; top:0; width:100%; height:100%; background: white; padding: 0; margin:0; }\
+        }\
+      `}</style>
       <div className="flex justify-between items-center mb-16">
         <h1 className="text-6xl font-black text-gray-900 tracking-tighter">{t.title}</h1>
         {!isCreating && (
@@ -1481,10 +1490,9 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                           };
 
                           const resultInsert = await supabase.from('customers').insert([dbData]);
-                          const { data: insertedData, error } = resultInsert;
-                          const inserted = Array.isArray(insertedData) && insertedData.length > 0 ? insertedData[0] : insertedData;
-                          if (error || !inserted) throw error || new Error('Insertion failed');
-                          setFormData({...formData, customerId: inserted.id});
+                          const inserted = Array.isArray((resultInsert as any).data) && (resultInsert as any).data.length > 0 ? (resultInsert as any).data[0] : (resultInsert as any).data;
+                          if ((resultInsert as any).error || !inserted) throw (resultInsert as any).error || new Error('Insertion failed');
+                          setFormData(prev => ({...prev, customerId: inserted.id}));
                           setIsCreatingNewClient(false);
                           setNewClientData({ wilaya: '16 - Alger', documentImages: [], profilePicture: 'https://via.placeholder.com/200' });
                           setProfilePreviewNew(null);
@@ -1830,7 +1838,10 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                     {/* Header Info */}
                     <div className="mb-4 relative">
                       <div className="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-1">Réservation #{res.reservationNumber}</div>
-                      <button onClick={() => handleEditReservation(res)} title="Modifier" className="absolute top-0 right-0 bg-white/95 text-gray-600 hover:bg-blue-600 hover:text-white rounded-full p-2 shadow-md transition-colors z-30">✏️</button>
+                      <div className="absolute top-0 right-0 flex gap-2 z-30">
+                        <button onClick={() => { setSelectedRes(res); setSelectedDocType('engagement'); setSelectedTemplate(null); setActiveModal('personalize'); }} title="Imprimer Engagement" className="bg-white/95 text-gray-600 hover:bg-green-600 hover:text-white rounded-full p-2 shadow-md transition-colors">🖨️</button>
+                        <button onClick={() => handleEditReservation(res)} title="Modifier" className="bg-white/95 text-gray-600 hover:bg-blue-600 hover:text-white rounded-full p-2 shadow-md transition-colors">✏️</button>
+                      </div>
                       <h3 className="text-lg font-black text-gray-900 leading-tight">{v?.brand} {v?.model}</h3>
                       <p className="text-[11px] text-gray-500 font-bold">{v?.immatriculation}</p>
                     </div>
@@ -1984,6 +1995,7 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                       {openRowActions === res.id && (
                         <div className="absolute right-0 mt-2 w-52 bg-white rounded-lg shadow-lg border p-2 z-40">
                           <div className="flex flex-col gap-2">
+                            <button onClick={() => { setSelectedRes(res); setSelectedDocType('engagement'); setSelectedTemplate(null); setActiveModal('personalize'); setOpenRowActions(null); }} className="text-left px-2 py-2 rounded-md hover:bg-gray-50">🖨️ Imprimer</button>
                             <button onClick={() => { setSelectedRes(res); handleEditReservation(res); setOpenRowActions(null); }} className="text-left px-2 py-2 rounded-md hover:bg-gray-50">✏️ Modifier</button>
                             <button onClick={() => { setSelectedRes(res); setActiveModal('details'); setOpenRowActions(null); }} className="text-left px-2 py-2 rounded-md hover:bg-gray-50">🔍 Détails</button>
                             {rest > 0 && <button onClick={() => { setSelectedRes(res); setPaymentAmount(0); setActiveModal('pay'); setOpenRowActions(null); }} className="text-left px-2 py-2 rounded-md hover:bg-gray-50">💰 Payer</button>}
@@ -2091,7 +2103,7 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
       {activeModal === 'print-preview' && selectedRes && selectedTemplate && (
         <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-xl flex items-center justify-center p-8 animate-fade-in">
            <div className="bg-white rounded-[4rem] shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden">
-              <div className="p-10 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <div className="p-10 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 no-print">
                  <div className="flex items-center gap-6">
                     <div className="w-16 h-16 bg-blue-600 text-white rounded-[1.5rem] flex items-center justify-center text-3xl shadow-xl">🖨️</div>
                     <div>
@@ -2103,26 +2115,36 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                     <GradientButton onClick={() => {
                       if (!selectedRes || !selectedTemplate) return;
                       
-                      const printWindow = window.open('', '_blank');
+                      // Create hidden iframe for printing instead of new window
+                      const iframe = document.createElement('iframe');
+                      iframe.style.display = 'none';
+                      document.body.appendChild(iframe);
+                      
+                      const printWindow = iframe.contentWindow;
                       if (!printWindow) return;
                       
                       const customer = customers.find(c => c.id === selectedRes.customerId);
                       const vehicle = vehicles.find(v => v.id === selectedRes.vehicleId);
                       if (!customer || !vehicle) return;
+
+                      // Prefer `storeInfo`/`storeLogo` props; fall back to agency record from `agencies`
+                      const agency = agencies.find(a => a.id === (selectedRes as any).pickupAgencyId || a.id === (selectedRes as any).pickup_agency_id) || null;
+                      const logoSrc = storeLogo || (agency && (agency as any).logo_url) || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%2250%22%3E%3Crect fill=%22%23f0f0f0%22 width=%22100%22 height=%2250%22/%3E%3C/svg%3E';
                       
-                      // Helper to replace variables
+                      // Helper to replace variables (UPDATED: Added client_id_card)
                       const replaceVars = (text: string): string => {
                         const days = Math.ceil((new Date(selectedRes.endDate).getTime() - new Date(selectedRes.startDate).getTime()) / (1000 * 60 * 60 * 24));
                         return text
                           .replace('{{client_name}}', `${customer.firstName} ${customer.lastName}`)
                           .replace('{{client_phone}}', customer.phone || '')
                           .replace('{{client_email}}', customer.email || '')
-                          .replace('{{client_dob}}', customer.dateOfBirth ? new Date(customer.dateOfBirth).toLocaleDateString(lang === 'ar' ? 'ar-DZ' : 'fr-FR') : '')
-                          .replace('{{client_pob}}', customer.placeOfBirth || '')
+                          .replace('{{client_id_card}}', customer.idCardNumber || customer.documentNumber || '')
+                          .replace('{{client_dob}}', customer.birthday ? new Date(customer.birthday).toLocaleDateString(lang === 'ar' ? 'ar-DZ' : 'fr-FR') : '')
+                          .replace('{{client_pob}}', customer.birthPlace || '')
                           .replace('{{client_license}}', customer.licenseNumber || '')
                           .replace('{{license_issued}}', customer.licenseIssueDate ? new Date(customer.licenseIssueDate).toLocaleDateString(lang === 'ar' ? 'ar-DZ' : 'fr-FR') : '')
-                          .replace('{{license_expiry}}', customer.licenseExpiryDate ? new Date(customer.licenseExpiryDate).toLocaleDateString(lang === 'ar' ? 'ar-DZ' : 'fr-FR') : '')
-                          .replace('{{license_place}}', customer.licensePlace || '')
+                          .replace('{{license_expiry}}', customer.licenseExpiry ? new Date(customer.licenseExpiry).toLocaleDateString(lang === 'ar' ? 'ar-DZ' : 'fr-FR') : '')
+                          .replace('{{license_place}}', customer.licenseIssuePlace || '')
                           .replace('{{vehicle_brand}}', vehicle.brand)
                           .replace('{{vehicle_model}}', vehicle.model)
                           .replace('{{vehicle_color}}', vehicle.color || '')
@@ -2140,12 +2162,16 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                           .replace('{{unit_price}}', (selectedRes.totalAmount / days).toLocaleString())
                           .replace('{{paid_amount}}', selectedRes.paidAmount.toLocaleString())
                           .replace('{{remaining_amount}}', (selectedRes.totalAmount - selectedRes.paidAmount).toLocaleString())
-                          .replace('{{store_name}}', storeInfo?.name || 'DriveFlow')
-                          .replace('{{store_phone}}', storeInfo?.phone || '')
-                          .replace('{{store_email}}', storeInfo?.email || '')
-                          .replace('{{store_address}}', storeInfo?.address || '');
+                          .replace('{{store_name}}', storeInfo?.name || agency?.name || 'DriveFlow')
+                          .replace('{{store_phone}}', storeInfo?.phone || agency?.phone || '')
+                          .replace('{{store_email}}', storeInfo?.email || agency?.email || '')
+                          .replace('{{store_address}}', storeInfo?.address || agency?.address || '');
                       };
                       
+                      const paidAmount = Number(selectedRes.paidAmount || 0);
+                      const totalAmount = Number((selectedRes as any).totalAmount || 0);
+                      const remaining = totalAmount - paidAmount;
+
                       const htmlContent = `
                         <!DOCTYPE html>
                         <html>
@@ -2260,8 +2286,13 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                         </head>
                         <body>
                           <div class="page">
-                            <img src="${storeLogo || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%2250%22%3E%3Crect fill=%22%23f0f0f0%22 width=%22100%22 height=%2250%22/%3E%3C/svg%3E'}" alt="Logo" class="logo">
-                            <div class="title">CONTRAT DE LOCATION DE VÉHICULE</div>
+                            <div style="display:flex; justify-content:flex-end; margin-bottom:8px; gap:16px;">
+                              <div style="flex:0 0 160px; text-align:right; font-size:12px;">
+                                <div style="font-weight:700;">Payé: ${paidAmount.toLocaleString()} DZ</div>
+                                <div style="color:#dc2626; font-weight:800; margin-top:6px;">Reste: ${remaining.toLocaleString()} DZ</div>
+                              </div>
+                            </div>
+                            <div class="title">ENGAGEMENT</div>
                             <div class="two-column">
                               <div>
                                 <div class="section-header">DÉTAILS DU CONTRAT</div>
@@ -2282,6 +2313,7 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                             <div class="section-header purple">INFORMATIONS DU CONDUCTEUR (Conducteur 01)</div>
                             <div class="content-box">
                               <strong>Nom:</strong> ${replaceVars('{{client_name}}')}<br>
+                              <strong>N° Passeport / CIN:</strong> ${replaceVars('{{client_id_card}}')}<br>
                               <strong>Date de naissance:</strong> ${replaceVars('{{client_dob}}')}<br>
                               <strong>Lieu de naissance:</strong> ${replaceVars('{{client_pob}}')}<br>
                               <strong>Type de document:</strong> Permis de conduire biométrique<br>
@@ -2367,17 +2399,22 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                       printWindow.document.close();
                       
                       setTimeout(() => {
-                        printWindow.focus();
                         printWindow.print();
+                        setTimeout(() => document.body.removeChild(iframe), 100);
                       }, 500);
                     }} className="!px-10 !py-4 shadow-xl">Imprimer Document</GradientButton>
                     <button onClick={() => setActiveModal(null)} className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-2xl shadow-sm hover:text-red-500 transition-all">✕</button>
                  </div>
               </div>
               
-              <div className="flex-1 bg-gray-100 p-16 overflow-y-auto custom-scrollbar flex justify-center">
+              <div className="flex-1 bg-gray-100 p-16 overflow-y-auto custom-scrollbar flex justify-center print-only">
                  <div className="bg-white shadow-2xl relative" style={{ width: `${selectedTemplate.canvasWidth}px`, height: `${selectedTemplate.canvasHeight}px` }}>
-                    {selectedTemplate.elements.map((el: any) => (
+                    {selectedTemplate.elements.map((el: any, idx: number) => {
+                      // Filter out duplicate logo elements - only show the first one
+                      const prevLogoIdx = selectedTemplate.elements.findIndex((e: any) => e.type === 'logo');
+                      if (el.type === 'logo' && idx !== prevLogoIdx) return null;
+                      
+                      return (
                       <div key={el.id} className="absolute" style={{
                          left: `${el.x}px`, top: `${el.y}px`, width: `${el.width}px`, height: el.type === 'divider' ? `${el.height}px` : 'auto',
                          minHeight: `${el.height}px`, fontSize: `${el.fontSize}px`, color: el.color, backgroundColor: el.backgroundColor,
@@ -2411,7 +2448,8 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                          })()}
                          {el.type !== 'logo' && el.type !== 'table' && el.type !== 'signature' && el.type !== 'checklist' && replaceVariables(el.content, selectedRes)}
                       </div>
-                    ))}
+                    );
+                    })}
                  </div>
               </div>
            </div>
@@ -2585,6 +2623,65 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                       <div className="flex justify-between"><span className="font-black text-gray-600">Localisation:</span> <span className="font-black text-yellow-900">{selectedRes.activationLog.location}</span></div>
                       <div className="flex justify-between"><span className="font-black text-gray-600">Date:</span> <span className="font-black text-yellow-900">{new Date(selectedRes.activationLog.date).toLocaleString()}</span></div>
                       {selectedRes.activationLog.notes && <div className="pt-2 border-t border-yellow-200"><span className="font-black text-gray-600">Notes:</span> <p className="text-yellow-900 mt-1">{selectedRes.activationLog.notes}</p></div>}
+                    </div>
+                  </div>
+                )}
+                {/* État de Départ - show exact items from depart inspection */}
+                {inspectionData.depart && (
+                  <div className="p-6 bg-white rounded-2xl border border-gray-100 mt-4">
+                    <p className="text-[10px] font-black text-gray-700 uppercase tracking-widest mb-4">🔎 État de Départ (détails de l'inspection)</p>
+                    <div className="grid grid-cols-1 gap-4 text-sm">
+                      {[
+                        { key: 'security', title: 'Sécurité', icon: '🔒' },
+                        { key: 'equipment', title: 'Équipements', icon: '🔧' },
+                        { key: 'comfort', title: 'Confort', icon: '🛋️' },
+                        { key: 'cleanliness', title: 'Propreté', icon: '🧽' }
+                      ].map(cat => {
+                        const items = Object.entries((inspectionData.depart as any)[cat.key] || {});
+                        return (
+                          <div key={cat.key} className="p-5 bg-white rounded-2xl border shadow-sm">
+                            <div className="flex items-center gap-3 mb-3">
+                              <div className="w-9 h-9 rounded-md bg-gray-50 flex items-center justify-center text-lg">{cat.icon}</div>
+                              <div>
+                                <div className="text-xs uppercase text-violet-700 font-black">État de Départ</div>
+                                <div className="font-bold text-sm">{cat.title}:</div>
+                              </div>
+                            </div>
+                            <div className="p-4 bg-violet-50 rounded-lg">
+                              {items.length === 0 ? (
+                                <div className="text-[13px] text-gray-400">Aucun élément enregistré</div>
+                              ) : (
+                                <ul className="space-y-3">
+                                  {items.map(([k, v]) => {
+                                    const tpl = inspectionTemplates.find((t: any) => t._key === k) as any;
+                                    const label = tpl ? tpl.item_name : k.replace(/_/g, ' ');
+                                    const ok = !!v && !(typeof v === 'number' && v === 0);
+                                    return (
+                                      <li key={k} className="flex items-start gap-3">
+                                        <div className="mt-1">
+                                          {ok ? (
+                                            <span className="inline-flex items-center gap-2 text-green-600">
+                                              <span className="w-4 h-4 inline-flex items-center justify-center rounded-sm bg-green-50 text-green-600">✅</span>
+                                            </span>
+                                          ) : (
+                                            <span className="inline-flex items-center gap-2 text-red-500">
+                                              <span className="w-4 h-4 inline-flex items-center justify-center rounded-sm bg-red-50 text-red-500">❌</span>
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div>
+                                          <div className="text-sm font-semibold">{label}</div>
+                                          <div className={`text-[13px] mt-0.5 ${ok ? 'text-green-600' : 'text-red-500'}`}>{ok ? 'Vérifiée' : 'Non vérifiée'}</div>
+                                        </div>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -3159,6 +3256,16 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                                    <span className="text-[9px] font-black text-purple-700">Confirmer État Retour</span>
                                 </label>
                              </div>
+                              {/* List depart items for reference */}
+                              {inspectionData.depart.security && Object.keys(inspectionData.depart.security).length > 0 && (
+                                <ul className="mt-3 grid grid-cols-2 gap-2 text-[13px]">
+                                  {Object.entries(inspectionData.depart.security).map(([k,v]) => {
+                                    const tpl = inspectionTemplates.find(t => t._key === k) as any;
+                                    const label = tpl ? tpl.item_name : k.replace(/_/g,' ');
+                                    return (<li key={k} className="flex items-center gap-2"><span className={`w-3 h-3 rounded-sm ${v ? 'bg-green-600' : 'bg-gray-300'}`} />{label}</li>);
+                                  })}
+                                </ul>
+                              )}
                           </div>
 
                           {/* Equipment */}
@@ -3178,6 +3285,15 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                                    <span className="text-[9px] font-black text-purple-700">Confirmer État Retour</span>
                                 </label>
                              </div>
+                            {inspectionData.depart.equipment && Object.keys(inspectionData.depart.equipment).length > 0 && (
+                              <ul className="mt-3 grid grid-cols-2 gap-2 text-[13px]">
+                                {Object.entries(inspectionData.depart.equipment).map(([k,v]) => {
+                                  const tpl = inspectionTemplates.find(t => t._key === k) as any;
+                                  const label = tpl ? tpl.item_name : k.replace(/_/g,' ');
+                                  return (<li key={k} className="flex items-center gap-2"><span className={`w-3 h-3 rounded-sm ${v ? 'bg-green-600' : 'bg-gray-300'}`} />{label}</li>);
+                                })}
+                              </ul>
+                            )}
                           </div>
 
                           {/* Comfort */}
@@ -3197,6 +3313,15 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                                    <span className="text-[9px] font-black text-purple-700">Confirmer État Retour</span>
                                 </label>
                              </div>
+                            {inspectionData.depart.comfort && Object.keys(inspectionData.depart.comfort).length > 0 && (
+                              <ul className="mt-3 grid grid-cols-2 gap-2 text-[13px]">
+                                {Object.entries(inspectionData.depart.comfort).map(([k,v]) => {
+                                  const tpl = inspectionTemplates.find(t => t._key === k) as any;
+                                  const label = tpl ? tpl.item_name : k.replace(/_/g,' ');
+                                  return (<li key={k} className="flex items-center gap-2"><span className={`w-3 h-3 rounded-sm ${v ? 'bg-green-600' : 'bg-gray-300'}`} />{label}</li>);
+                                })}
+                              </ul>
+                            )}
                           </div>
 
                           {/* Cleanliness */}
@@ -3216,6 +3341,16 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                                    <span className="text-[9px] font-black text-purple-700">Confirmer État Retour</span>
                                 </label>
                              </div>
+                            {inspectionData.depart.cleanliness && Object.keys(inspectionData.depart.cleanliness).length > 0 && (
+                              <ul className="mt-3 grid grid-cols-2 gap-2 text-[13px]">
+                                {Object.entries(inspectionData.depart.cleanliness).map(([k,v]) => {
+                                  const tpl = inspectionTemplates.find(t => t._key === k) as any;
+                                  const label = tpl ? tpl.item_name : k.replace(/_/g,' ');
+                                  const display = typeof v === 'number' ? `${v}/10` : (v ? 'OK' : 'N/A');
+                                  return (<li key={k} className="flex items-center justify-between"><div className="flex items-center gap-2"><span className={`w-3 h-3 rounded-sm ${v ? 'bg-green-600' : 'bg-gray-300'}`} />{label}</div><span className="font-black text-sm">{display}</span></li>);
+                                })}
+                              </ul>
+                            )}
                           </div>
                        </div>
                     </div>

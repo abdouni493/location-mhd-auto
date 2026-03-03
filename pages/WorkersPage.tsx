@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Language, Worker, Role, WorkerTransaction } from '../types';
 import GradientButton from '../components/GradientButton';
+import { apiFetch, apiPost } from '../lib/api';
 
 interface WorkersPageProps {
   lang: Language;
@@ -147,11 +148,7 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
       setLoading(true);
       setError(null);
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/from/workers/select`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ columns: '*' })
-      });
+      const response = await apiPost('/api/from/workers/select', { columns: '*' });
 
       const result = await response.json();
 
@@ -191,12 +188,8 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
   const handleDeleteWorker = async (id: string) => {
     try {
       setSaving(true);
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/from/workers/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          where: { col: 'id', val: id }
-        })
+      const response = await apiPost('/api/from/workers/delete', {
+        where: { col: 'id', val: id }
       });
 
       const result = await response.json();
@@ -239,22 +232,14 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
       let response;
       if (editingWorker?.id) {
         // Update existing worker
-        response = await fetch(`${import.meta.env.VITE_API_URL}/api/from/workers/update`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            data: workerData,
-            where: { col: 'id', val: editingWorker.id }
-          })
+        response = await apiPost('/api/from/workers/update', {
+          data: workerData,
+          where: { col: 'id', val: editingWorker.id }
         });
       } else {
         // Insert new worker
-        response = await fetch(`${import.meta.env.VITE_API_URL}/api/from/workers/insert`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            rows: [workerData]
-          })
+        response = await apiPost('/api/from/workers/insert', {
+          rows: [workerData]
         });
       }
 
@@ -299,13 +284,9 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
         updateData.absences = (worker.absences || 0) + 1;
       }
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/from/workers/update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: updateData,
-          where: { col: 'id', val: workerId }
-        })
+      const response = await apiPost('/api/from/workers/update', {
+        data: updateData,
+        where: { col: 'id', val: workerId }
       });
 
       const result = await response.json();

@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
-import { Pool } from 'pg';
+import { pool, testConnection } from '../lib/db-fallback.js';
 
 const app = express();
 
@@ -76,24 +76,7 @@ app.get('/cache-stats', (req, res) => {
   res.json({ cache_size: cache.size, max_cache: 1000 });
 });
 
-const connectionString = process.env.NEON_DATABASE_URL;
-if (!connectionString) {
-  console.error('NEON_DATABASE_URL not set');
-  process.exit(1);
-}
-
-// ============================================================
-// CONNECTION POOLING - Optimized for performance
-// ============================================================
-const pool = new Pool({
-  connectionString,
-  ssl: { rejectUnauthorized: false },
-  max: 25, // Maximum pool size
-  idleTimeoutMillis: 30000, // Close idle connections after 30s
-  connectionTimeoutMillis: 20000, // Timeout for new connections (increased)
-  statement_timeout: 60000, // Query timeout 60s
-  keepAlive: true,
-});
+// Use shared pool from lib/db.js (centralized configuration)
 
 // Test database connection and create inspection_templates table if needed
 // Prepare SQL used for initial table creation
@@ -132,8 +115,8 @@ let dbReady = false;
 const initDb = async () => {
   while (true) {
     try {
-      const r = await pool.query('SELECT NOW()');
-      console.log('Database connected successfully');
+      const r = await testConnection(5);
+      console.log('Database connected successfully', r);
 
       // Ensure required tables exist
       try {
@@ -260,8 +243,20 @@ app.post('/api/from/:table/select', async (req, res) => {
     // Merge where and filters (where takes precedence)
     const finalFilters = where ? { [where.col]: where.val } : (filters || {});
     
-    // Generate cache key
-    const cacheKey = `select:${table}:${columns}:${JSON.stringify(order)}:${limit}:${JSON.stringify(finalFilters)}`;
+    // ============================================================
+    // OPTIMIZATION: For vehicles table, exclude heavy columns
+    // ============================================================
+    let selectedColumns = columns;
+    if (table === 'customers' && columns === '*') {
+      // Fetch essential + critical display columns (EXCLUDE document_images only)
+      selectedColumns = 'id, first_name, last_name, phone, email, wilaya, address, license_number, license_expiry, profile_picture, total_reservations, total_spent, document_left_at_store, document_number, created_at';
+    } else if (table === 'vehicles' && columns === '*') {
+      // For vehicles, INCLUDE main_image (required for display), EXCLUDE secondary_images (heavy array)
+      selectedColumns = 'id, brand, model, year, immatriculation, color, fuel_type, transmission, seats, daily_rate, weekly_rate, monthly_rate, status, current_location, mileage, created_at, main_image';
+    }
+    
+    // Generate cache key (use normalized column selection)
+    const cacheKey = `select:${table}:${selectedColumns}:${JSON.stringify(order)}:${limit}:${JSON.stringify(finalFilters)}`;
     
     // Check cache first for cacheable queries
     const config = CACHE_CONFIG[table];
@@ -273,7 +268,7 @@ app.post('/api/from/:table/select', async (req, res) => {
       }
     }
     
-    let q = `SELECT ${columns === '*' ? columns : columns.split(',').map(c => `"${c.trim()}"`).join(', ')} FROM "${table}"`;
+    let q = `SELECT ${selectedColumns === '*' ? selectedColumns : selectedColumns.split(',').map(c => `"${c.trim()}"`).join(', ')} FROM "${table}"`;
     let params = [];
     
     // Add WHERE clause if filters/where provided
@@ -301,10 +296,13 @@ app.post('/api/from/:table/select', async (req, res) => {
       q += ` ORDER BY "${order.column}" ${dir}`;
     }
     
-    // Add LIMIT clause if specified
+    // Add LIMIT clause if specified (or default to 500 for safety)
     if (limit && !isNaN(limit)) {
       const safeLimit = Math.max(1, Math.min(parseInt(limit), 10000));
       q += ` LIMIT ${safeLimit}`;
+    } else {
+      // Default limit to prevent fetching too many rows
+      q += ` LIMIT 500`;
     }
     
     const start = Date.now();
@@ -487,6 +485,18 @@ app.post('/api/from/:table/delete', async (req, res) => {
     // Invalidate cache for this table
     clearCache(table);
     
+    // Try to refresh materialized views if applicable (non-critical, ignore errors)
+    if (table === 'customers') {
+      try {
+        // Use non-concurrent refresh to avoid conflicts
+        pool.query('REFRESH MATERIALIZED VIEW customers_dashboard_view').catch(e => {
+          console.warn(`[WARN] Could not refresh dashboard view:`, e.message);
+        });
+      } catch (e) {
+        // Silently ignore view refresh errors - they're not critical
+      }
+    }
+    
     res.json({ data: r.rows, error: null, duration_ms: duration });
   } catch (err) {
     console.error(`[DELETE ERROR] ${table}:`, err.message);
@@ -547,6 +557,236 @@ app.post('/api/batch/update', async (req, res) => {
   }
 });
 
+// ============================================================
+// DOCUMENT TEMPLATES API ENDPOINTS
+// ============================================================
+
+// Get all templates or filter by category
+// ============================================================
+// OPTIMIZED CUSTOMER LIST API - Fast pagination with caching
+// ============================================================
+app.get('/api/customers/list', async (req, res) => {
+  const page = parseInt(req.query.page || '0');
+  const limit = Math.min(parseInt(req.query.limit || '50'), 200); // Max 200 per page
+  const offset = page * limit;
+  const cacheKey = `customers_list_${page}_${limit}`;
+  
+  // Check cache first
+  const cached = getFromCache(cacheKey);
+  if (cached) {
+    console.log(`[CACHE HIT] customers list page ${page}`);
+    return res.json(cached);
+  }
+  
+  try {
+    const start = Date.now();
+    
+    // Fast query using index
+    const result = await pool.query(`
+      SELECT 
+        id, first_name, last_name, phone, email, profile_picture,
+        COALESCE(total_reservations, 0) as total_reservations, 
+        COALESCE(total_spent, 0) as total_spent, 
+        document_left_at_store,
+        id_card_number, document_number, wilaya, address,
+        license_number, license_expiry, license_issue_date, license_issue_place,
+        birthday, birth_place, document_type, document_delivery_date,
+        document_delivery_address, document_expiry_date, document_images,
+        created_at
+      FROM public.customers 
+      ORDER BY created_at DESC 
+      LIMIT $1 OFFSET $2
+    `, [limit, offset]);
+    
+    // Get total count
+    const countResult = await pool.query('SELECT COUNT(*) as total FROM public.customers');
+    const total = parseInt(countResult.rows[0].total);
+    
+    const response = {
+      data: result.rows,
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
+      duration_ms: Date.now() - start
+    };
+    
+    // Cache the result
+    setInCache(cacheKey, response, CACHE_CONFIG.customers.ttl);
+    
+    console.log(`[SELECT] customers page ${page}: ${result.rows.length} rows in ${response.duration_ms}ms`);
+    res.json(response);
+  } catch (err) {
+    console.error('[CUSTOMERS LIST ERROR]:', err.message);
+    res.status(500).json({ data: null, error: { message: err.message } });
+  }
+});
+
+app.get('/api/templates', async (req, res) => {
+  try {
+    const { category } = req.query;
+    
+    // Check if table exists first
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'document_templates'
+      )
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.json({ data: [], error: null, message: 'Templates table not initialized. Run SQL_TEMPLATES_COMPLETE.sql' });
+    }
+    
+    let query = 'SELECT * FROM public.document_templates ORDER BY is_default DESC, created_at DESC';
+    let params = [];
+
+    if (category) {
+      query = 'SELECT * FROM public.document_templates WHERE category = $1 ORDER BY is_default DESC, created_at DESC';
+      params = [category];
+    }
+
+    const result = await pool.query(query, params);
+    res.json({ data: result.rows, error: null });
+  } catch (err) {
+    console.error('[TEMPLATES GET ERROR]:', err.message);
+    res.json({ data: [], error: null }); // Return empty array instead of error
+  }
+});
+
+// Get single template by ID
+app.get('/api/templates/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('SELECT * FROM public.document_templates WHERE id = $1', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ data: null, error: { message: 'Template not found' } });
+    }
+    res.json({ data: result.rows[0], error: null });
+  } catch (err) {
+    console.error('[TEMPLATES GET BY ID ERROR]:', err.message);
+    res.status(500).json({ data: null, error: { message: err.message } });
+  }
+});
+
+// Save/Create new template
+app.post('/api/templates', async (req, res) => {
+  try {
+    const { name, category, elements, canvasWidth, canvasHeight, description } = req.body;
+
+    if (!name || !category || !elements) {
+      return res.status(400).json({ data: null, error: { message: 'Missing required fields: name, category, elements' } });
+    }
+
+    // Check if table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'document_templates'
+      )
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.status(400).json({ 
+        data: null, 
+        error: { message: 'Templates table not initialized. Run SQL_TEMPLATES_COMPLETE.sql in your database first.' } 
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO public.document_templates (name, category, elements, canvas_width, canvas_height, description)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [name, category, JSON.stringify(elements), canvasWidth || 800, canvasHeight || 1100, description || '']
+    );
+
+    clearCache('templates');
+    res.json({ data: result.rows[0], error: null });
+  } catch (err) {
+    console.error('[TEMPLATES CREATE ERROR]:', err.message);
+    res.status(500).json({ data: null, error: { message: err.message } });
+  }
+});
+
+// Update existing template
+app.put('/api/templates/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, category, elements, canvasWidth, canvasHeight, description } = req.body;
+
+    // Check if table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'document_templates'
+      )
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.status(400).json({ 
+        data: null, 
+        error: { message: 'Templates table not initialized' } 
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE public.document_templates 
+       SET name = $1, category = $2, elements = $3, canvas_width = $4, canvas_height = $5, description = $6, updated_at = NOW()
+       WHERE id = $7
+       RETURNING *`,
+      [name, category, JSON.stringify(elements), canvasWidth, canvasHeight, description, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ data: null, error: { message: 'Template not found' } });
+    }
+
+    clearCache('templates');
+    res.json({ data: result.rows[0], error: null });
+  } catch (err) {
+    console.error('[TEMPLATES UPDATE ERROR]:', err.message);
+    res.status(500).json({ data: null, error: { message: err.message } });
+  }
+});
+
+// Delete template
+app.delete('/api/templates/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'document_templates'
+      )
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return res.status(400).json({ 
+        data: null, 
+        error: { message: 'Templates table not initialized' } 
+      });
+    }
+    
+    const result = await pool.query('DELETE FROM public.document_templates WHERE id = $1 RETURNING *', [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ data: null, error: { message: 'Template not found' } });
+    }
+
+    clearCache('templates');
+    res.json({ data: result.rows[0], error: null });
+  } catch (err) {
+    console.error('[TEMPLATES DELETE ERROR]:', err.message);
+    res.status(500).json({ data: null, error: { message: err.message } });
+  }
+});
+
 app.post('/api/auth/signin', async (req, res) => {
   const { email } = req.body || {};
   if (!email) return res.status(400).json({ data: null, error: { message: 'Email required' } });
@@ -572,12 +812,11 @@ app.use((err, req, res, next) => {
 });
 
 const port = process.env.PORT || 4000;
-initDb()
-  .then(() => {
-    app.listen(port, () => console.log(`DB proxy server listening on http://localhost:${port}`));
-  })
-  .catch((err) => {
-    console.error('Failed to initialize DB:', err);
-    // Start server anyway so frontend can still run; endpoints will return 500 until DB connects.
-    app.listen(port, () => console.log(`DB proxy server listening on http://localhost:${port} (DB init failed)`));
-  });
+
+// Start HTTP server immediately so frontend can reach API even while DB init retries
+app.listen(port, () => console.log(`DB proxy server listening on http://localhost:${port}`));
+
+// Initialize DB in background (will retry until connected)
+initDb().catch((err) => {
+  console.error('DB initialization failed (background):', err);
+});

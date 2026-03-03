@@ -91,6 +91,15 @@ export interface Customer {
   licenseNumber: string;
   licenseExpiry: string;
   profilePicture?: string;
+  birthday?: string;
+  birthPlace?: string;
+  documentType?: string;
+  documentNumber?: string;
+  documentDeliveryDate?: string;
+  documentDeliveryAddress?: string;
+  documentExpiryDate?: string;
+  licenseIssueDate?: string;
+  licenseIssuePlace?: string;
   documentImages: string[];
   documentLeftAtStore?: string;
   totalReservations: number;

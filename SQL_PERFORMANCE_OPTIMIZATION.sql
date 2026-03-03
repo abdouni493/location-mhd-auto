@@ -4,20 +4,118 @@
 -- ============================================================================
 
 -- ============================================================================
--- 1. CREATE INDEXES FOR CRITICAL QUERIES (HIGHEST IMPACT)
+-- 1. OPTIMIZE VEHICLES TABLE (FAST LOADING)
 -- ============================================================================
 
--- Customers table indexes
-CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
-CREATE INDEX IF NOT EXISTS idx_customers_wilaya ON customers(wilaya);
-CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email);
-CREATE INDEX IF NOT EXISTS idx_customers_created_at ON customers(created_at DESC);
+-- Index for dashboard/list views (most commonly used fields)
+CREATE INDEX IF NOT EXISTS idx_vehicles_list_view 
+  ON public.vehicles(created_at DESC, id, brand, model, immatriculation, status)
+  INCLUDE (daily_rate, mileage);
 
--- Vehicles table indexes
-CREATE INDEX IF NOT EXISTS idx_vehicles_registration ON vehicles(registration_number);
-CREATE INDEX IF NOT EXISTS idx_vehicles_status ON vehicles(status);
-CREATE INDEX IF NOT EXISTS idx_vehicles_agency ON vehicles(agency_id);
-CREATE INDEX IF NOT EXISTS idx_vehicles_created_at ON vehicles(created_at DESC);
+-- Index for status/availability searches
+CREATE INDEX IF NOT EXISTS idx_vehicles_status 
+  ON public.vehicles(status, created_at DESC);
+
+-- Index for immatriculation (license plate) searches
+CREATE INDEX IF NOT EXISTS idx_vehicles_immatriculation
+  ON public.vehicles(immatriculation);
+
+-- Index for brand + model searches (common filter)
+CREATE INDEX IF NOT EXISTS idx_vehicles_brand_model 
+  ON public.vehicles(brand, model, year DESC);
+
+-- Index for price range searches
+CREATE INDEX IF NOT EXISTS idx_vehicles_daily_rate
+  ON public.vehicles(daily_rate, status);
+
+-- Index for location/depot filters
+CREATE INDEX IF NOT EXISTS idx_vehicles_location
+  ON public.vehicles(current_location, status);
+
+-- Index for fuel type and transmission (filter options)
+CREATE INDEX IF NOT EXISTS idx_vehicles_fuel_transmission
+  ON public.vehicles(fuel_type, transmission, status);
+
+-- ============================================================================
+-- 2. CREATE MATERIALIZED VIEW FOR VEHICLES DASHBOARD
+-- ============================================================================
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS vehicles_dashboard_view AS
+SELECT 
+  id,
+  brand,
+  model,
+  year,
+  immatriculation,
+  color,
+  fuel_type,
+  transmission,
+  daily_rate,
+  weekly_rate,
+  monthly_rate,
+  status,
+  current_location,
+  mileage,
+  created_at,
+  updated_at
+FROM public.vehicles
+ORDER BY created_at DESC;
+
+-- Index on the materialized view
+CREATE INDEX IF NOT EXISTS idx_vehicles_dashboard_status 
+  ON vehicles_dashboard_view(status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_vehicles_dashboard_daily_rate 
+  ON vehicles_dashboard_view(daily_rate DESC);
+
+-- ============================================================================
+-- 3. CREATE OPTIMIZED VIEW FOR VEHICLES LIST
+-- ============================================================================
+
+CREATE OR REPLACE VIEW vehicles_list_view AS
+SELECT 
+  id,
+  brand,
+  model,
+  year,
+  immatriculation,
+  color,
+  fuel_type,
+  transmission,
+  seats,
+  doors,
+  daily_rate,
+  weekly_rate,
+  monthly_rate,
+  status,
+  current_location,
+  mileage,
+  created_at,
+  updated_at
+FROM public.vehicles;
+
+-- ============================================================================
+-- 4. REFRESH MATERIALIZED VIEW AFTER VEHICLE UPDATES
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION refresh_vehicles_dashboard() 
+RETURNS TRIGGER AS $$
+BEGIN
+  REFRESH MATERIALIZED VIEW CONCURRENTLY vehicles_dashboard_view;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS vehicles_dashboard_refresh ON public.vehicles;
+
+CREATE TRIGGER vehicles_dashboard_refresh
+AFTER INSERT OR UPDATE OR DELETE ON public.vehicles
+FOR EACH ROW
+EXECUTE FUNCTION refresh_vehicles_dashboard();
+
+-- ============================================================================
+-- 5. OPTIMIZE CUSTOMERS TABLE (FAST LOADING)
+-- ============================================================================
 
 -- Reservations table indexes (MOST CRITICAL - This table gets queried frequently)
 CREATE INDEX IF NOT EXISTS idx_reservations_customer ON reservations(customer_id);

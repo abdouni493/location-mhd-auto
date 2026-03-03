@@ -1,8 +1,9 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Language, Customer, Reservation, Vehicle } from '../types';
 import { ALGERIAN_WILAYAS } from '../constants';
 import { supabase } from '../lib/supabase';
+import { apiPost } from '../lib/api';
 import GradientButton from '../components/GradientButton';
 
 interface CustomersPageProps {
@@ -20,6 +21,8 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [activeModal, setActiveModal] = useState<{ type: ModalType; customer: Customer | null }>({ type: null, customer: null });
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [displayCount, setDisplayCount] = useState(50);
   const [loading, setLoading] = useState(false);
   
   // Form State for UI previews (Base64 strings)
@@ -100,15 +103,37 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
   }[lang];
 
   const handleOpenForm = (customer: Customer | null = null) => {
-    setEditingCustomer(customer);
-    if (customer) {
-      setProfilePreview(customer.profilePicture || null);
-      setDocPreviews(customer.documentImages || []);
-    } else {
+    if (!customer) {
+      setEditingCustomer(null);
       setProfilePreview(null);
       setDocPreviews([]);
+      setIsFormOpen(true);
+      return;
     }
+
+    // Open the form immediately with the provided object for responsive UX,
+    // then fetch a fresh DB row in background and patch values when available.
+    setEditingCustomer(customer);
+    setProfilePreview((customer as any).profilePicture || (customer as any).profile_picture || null);
+    setDocPreviews((customer as any).documentImages || (customer as any).document_images || []);
     setIsFormOpen(true);
+
+    (async () => {
+      try {
+        const result = await supabase.from('customers').select('*').eq('id', customer.id);
+        if ((result as any).error) {
+          console.warn('Failed to fetch fresh customer for edit', (result as any).error);
+          return;
+        }
+        const data = Array.isArray((result as any).data) && (result as any).data.length > 0 ? (result as any).data[0] : (result as any).data;
+        if (!data) return;
+        setEditingCustomer(data as Customer);
+        setProfilePreview((data as any).profile_picture || (data as any).profilePicture || null);
+        setDocPreviews((data as any).document_images || (data as any).documentImages || []);
+      } catch (e) {
+        console.warn('Error fetching fresh customer for edit', e);
+      }
+    })();
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, target: 'profile' | 'docs') => {
@@ -129,35 +154,60 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
 
   const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    // gather form values first
+    const backupEditing = editingCustomer;
+    const backupProfile = profilePreview;
+    const backupDocs = docPreviews.slice();
     setLoading(true);
     const fd = new FormData(e.currentTarget);
     
     const dbData = {
-      first_name: fd.get('first_name') as string,
-      last_name: fd.get('last_name') as string,
-      phone: fd.get('phone') as string,
-      email: fd.get('email') as string,
-      id_card_number: fd.get('id_card_number') as string,
-      wilaya: fd.get('wilaya') as string,
-      address: fd.get('address') as string,
-      license_number: fd.get('license_number') as string,
-      license_expiry: fd.get('license_expiry') as string,
+      first_name: (fd.get('first_name') as string) || null,
+      last_name: (fd.get('last_name') as string) || null,
+      phone: (fd.get('phone') as string) || null,
+      email: (fd.get('email') as string) || null,
+      birthday: (fd.get('date_of_birth') as string) || null,
+      birth_place: (fd.get('place_of_birth') as string) || null,
+      id_card_number: (fd.get('id_card_number') as string) || null,
+      document_type: (fd.get('doc_type') as string) || null,
+      document_number: (fd.get('doc_number') as string) || null,
+      document_delivery_date: (fd.get('doc_issue_date') as string) || null,
+      document_delivery_address: (fd.get('doc_issue_place') as string) || null,
+      document_expiry_date: (fd.get('doc_expiry_date') as string) || null,
+      wilaya: (fd.get('wilaya') as string) || null,
+      address: (fd.get('address') as string) || null,
+      license_number: (fd.get('license_number') as string) || null,
+      license_expiry: (fd.get('license_expiry') as string) || null,
+      license_issue_date: (fd.get('license_issue_date') as string) || null,
+      license_issue_place: (fd.get('license_issue_place') as string) || null,
       profile_picture: profilePreview,
       document_images: docPreviews,
-      document_left_at_store: fd.get('document_left') as string
+      document_left_at_store: (fd.get('document_left') as string) || null
     };
 
+    // Optimistic UX: close the form immediately while saving in background
+    setIsFormOpen(false);
+    setEditingCustomer(null);
     try {
-      if (editingCustomer) {
-        await supabase.from('customers').update(dbData).eq('id', editingCustomer.id);
+      if (backupEditing) {
+        const result = await supabase.from('customers').update(dbData).eq('id', backupEditing.id);
+        if ((result as any).error) throw (result as any).error;
+        window.alert('✅ Client mis à jour');
       } else {
-        await supabase.from('customers').insert([dbData]);
+        const result = await supabase.from('customers').insert([dbData]);
+        if ((result as any).error) throw (result as any).error;
+        window.alert('✅ Client créé');
       }
-      onRefresh();
-      setIsFormOpen(false);
-      setEditingCustomer(null);
-    } catch (err) {
-      console.error(err);
+      // refresh list in background
+      try { onRefresh(); } catch (e) { console.warn('onRefresh failed', e); }
+    } catch (err: any) {
+      console.error('Save failed, reopening form', err);
+      // restore UI so user can retry
+      setEditingCustomer(backupEditing);
+      setProfilePreview(backupProfile);
+      setDocPreviews(backupDocs);
+      setIsFormOpen(true);
+      window.alert('❌ Erreur lors de l\'enregistrement: ' + (err?.message || String(err)));
     } finally {
       setLoading(false);
     }
@@ -165,18 +215,37 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
 
   const handleDelete = async (id: string) => {
     try {
-      await supabase.from('customers').delete().eq('id', id);
+      setLoading(true);
+      const res = await apiPost('/api/from/customers/delete', { where: { col: 'id', val: id } });
+      const result = await res.json();
+      if (result.error) {
+        throw new Error(result.error.message || 'Delete failed');
+      }
       onRefresh();
       setActiveModal({ type: null, customer: null });
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Delete failed:', err);
+      window.alert('❌ Erreur lors de la suppression: ' + (err?.message || String(err)));
+    } finally {
+      setLoading(false);
     }
   };
 
-  const filteredCustomers = customers.filter(c => 
-    `${c.firstName} ${c.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.phone.includes(searchTerm)
-  );
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm), 250);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  const filteredCustomers = useMemo(() => {
+    const q = (debouncedSearch || '').toLowerCase().trim();
+    if (!q) return customers;
+    return customers.filter(c => {
+      const full = `${(c.firstName||'').toString()} ${(c.lastName||'').toString()}`.toLowerCase();
+      return full.includes(q) || (c.phone||'').toString().includes(q) || (c.email||'').toString().toLowerCase().includes(q);
+    });
+  }, [customers, debouncedSearch]);
+
+  const displayedCustomers = filteredCustomers.slice(0, displayCount);
 
   const customerHistory = activeModal.customer ? reservations.filter(r => r.customerId === activeModal.customer!.id) : [];
   const historyTotalAmount = customerHistory.reduce((s, r) => s + (r.totalAmount || 0), 0);
@@ -188,6 +257,95 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
       <h3 className="text-xl font-black uppercase tracking-widest">{title}</h3>
     </div>
   );
+
+  // Helpers for safe field access and date formatting in the details modal
+  const getField = (c: any, camel: string, snake?: string) => {
+    if (!c) return undefined;
+    const s = snake || camel.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
+    // try multiple variants: camel, snake, lowerCamel
+    const lowerCamel = camel.charAt(0).toLowerCase() + camel.slice(1);
+    if (Object.prototype.hasOwnProperty.call(c, camel) && c[camel] !== null && c[camel] !== undefined) return c[camel];
+    if (Object.prototype.hasOwnProperty.call(c, s) && c[s] !== null && c[s] !== undefined) return c[s];
+    if (Object.prototype.hasOwnProperty.call(c, lowerCamel) && c[lowerCamel] !== null && c[lowerCamel] !== undefined) return c[lowerCamel];
+    return undefined;
+  };
+
+  const formatDate = (val: any) => {
+    if (!val) return 'N/A';
+    try {
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return String(val);
+      return d.toLocaleDateString();
+    } catch (e) { return String(val); }
+  };
+
+  // Helper function to normalize customer data from database
+  const normalizeCustomer = (dbCustomer: any): Customer => ({
+    id: dbCustomer.id,
+    firstName: dbCustomer.first_name || '',
+    lastName: dbCustomer.last_name || '',
+    phone: dbCustomer.phone || '',
+    email: dbCustomer.email,
+    idCardNumber: dbCustomer.id_card_number || '',
+    documentNumber: dbCustomer.document_number,
+    wilaya: dbCustomer.wilaya || '',
+    address: dbCustomer.address || '',
+    licenseNumber: dbCustomer.license_number || '',
+    licenseExpiry: dbCustomer.license_expiry,
+    licenseIssueDate: dbCustomer.license_issue_date,
+    licenseIssuePlace: dbCustomer.license_issue_place,
+    profilePicture: dbCustomer.profile_picture,
+    birthday: dbCustomer.birthday,
+    birthPlace: dbCustomer.birth_place,
+    documentType: dbCustomer.document_type,
+    documentDeliveryDate: dbCustomer.document_delivery_date,
+    documentDeliveryAddress: dbCustomer.document_delivery_address,
+    documentExpiryDate: dbCustomer.document_expiry_date,
+    documentImages: dbCustomer.document_images || [],
+    documentLeftAtStore: dbCustomer.document_left_at_store,
+    totalReservations: dbCustomer.total_reservations || 0,
+    totalSpent: dbCustomer.total_spent || 0,
+  });
+
+  // When opening details modal, fetch fresh customer from DB to ensure latest fields
+  useEffect(() => {
+    if (activeModal.type !== 'details' || !activeModal.customer?.id) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const result = await supabase.from('customers').select('*').eq('id', activeModal.customer!.id);
+        if ((result as any).error) {
+          console.warn('Failed to refresh customer details', (result as any).error);
+          return;
+        }
+        const data = Array.isArray((result as any).data) && (result as any).data.length > 0 ? (result as any).data[0] : (result as any).data;
+        if (!mounted || !data) return;
+        setActiveModal(prev => ({ ...(prev || { type: null, customer: null }), type: 'details', customer: normalizeCustomer(data) }));
+      } catch (e) {
+        console.warn('Error fetching customer details', e);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [activeModal.type, activeModal.customer?.id]);
+
+  const toInputDate = (val: any) => {
+    if (!val) return '';
+    try {
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return '';
+      // YYYY-MM-DD
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    } catch (e) { return '' }
+  };
+
+  const getFormValue = (c: any, camel: string, snake?: string, isDate = false) => {
+    const raw = c ? (c[camel] ?? c[snake || camel.replace(/[A-Z]/g, m => '_' + m.toLowerCase())] ?? c[camel.charAt(0).toLowerCase() + camel.slice(1)]) : null;
+    if (!raw) return '';
+    return isDate ? toInputDate(raw) : String(raw);
+  };
 
   if (isFormOpen) {
     return (
@@ -214,19 +372,27 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-4">
                     <label className="text-[12px] font-black text-blue-700 uppercase px-2 flex items-center gap-2">✍️ Prénom *</label>
-                    <input name="first_name" defaultValue={editingCustomer?.firstName} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-blue-200 focus:bg-blue-50 focus:border-blue-600 focus:ring-2 ring-blue-300 transition-all shadow-md" required />
+                    <input name="first_name" defaultValue={getFormValue(editingCustomer as any, 'firstName', 'first_name')} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-blue-200 focus:bg-blue-50 focus:border-blue-600 focus:ring-2 ring-blue-300 transition-all shadow-md" required />
                   </div>
                   <div className="space-y-4">
                     <label className="text-[12px] font-black text-blue-700 uppercase px-2 flex items-center gap-2">✍️ Nom de Famille *</label>
-                    <input name="last_name" defaultValue={editingCustomer?.lastName} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-blue-200 focus:bg-blue-50 focus:border-blue-600 focus:ring-2 ring-blue-300 transition-all shadow-md" required />
+                    <input name="last_name" defaultValue={getFormValue(editingCustomer as any, 'lastName', 'last_name')} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-blue-200 focus:bg-blue-50 focus:border-blue-600 focus:ring-2 ring-blue-300 transition-all shadow-md" required />
                   </div>
                   <div className="space-y-4">
                     <label className="text-[12px] font-black text-green-700 uppercase px-2 flex items-center gap-2">📱 Téléphone *</label>
-                    <input name="phone" defaultValue={editingCustomer?.phone} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-green-200 focus:bg-green-50 focus:border-green-600 focus:ring-2 ring-green-300 transition-all shadow-md" required />
+                    <input name="phone" defaultValue={getFormValue(editingCustomer as any, 'phone', 'phone')} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-green-200 focus:bg-green-50 focus:border-green-600 focus:ring-2 ring-green-300 transition-all shadow-md" required />
                   </div>
                   <div className="space-y-4">
                     <label className="text-[12px] font-black text-purple-700 uppercase px-2 flex items-center gap-2">📧 Email (optionnel)</label>
-                    <input name="email" defaultValue={editingCustomer?.email} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-purple-200 focus:bg-purple-50 focus:border-purple-600 focus:ring-2 ring-purple-300 transition-all shadow-md" />
+                    <input name="email" defaultValue={getFormValue(editingCustomer as any, 'email', 'email')} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-purple-200 focus:bg-purple-50 focus:border-purple-600 focus:ring-2 ring-purple-300 transition-all shadow-md" />
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[12px] font-black text-pink-700 uppercase px-2 flex items-center gap-2">🎂 Date Naissance</label>
+                    <input name="date_of_birth" type="date" defaultValue={getFormValue(editingCustomer as any, 'birthday', 'birthday', true)} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-pink-200 focus:bg-pink-50 focus:border-pink-600 focus:ring-2 ring-pink-300 transition-all shadow-md" />
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[12px] font-black text-pink-700 uppercase px-2 flex items-center gap-2">📍 Lieu Naissance</label>
+                    <input name="place_of_birth" defaultValue={getFormValue(editingCustomer as any, 'birthPlace', 'birth_place')} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-pink-200 focus:bg-pink-50 focus:border-pink-600 focus:ring-2 ring-pink-300 transition-all shadow-md" />
                   </div>
                 </div>
               </section>
@@ -240,25 +406,55 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                   <div className="space-y-4">
                     <label className="text-[12px] font-black text-red-700 uppercase px-2 flex items-center gap-2">🆔 N° Carte d'Identité *</label>
-                    <input name="id_card_number" defaultValue={editingCustomer?.idCardNumber} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" required />
+                    <input name="id_card_number" defaultValue={getFormValue(editingCustomer as any, 'idCardNumber', 'id_card_number')} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" required />
                   </div>
                   <div className="space-y-4">
                     <label className="text-[12px] font-black text-red-700 uppercase px-2 flex items-center gap-2">🚗 N° Permis *</label>
-                    <input name="license_number" defaultValue={editingCustomer?.licenseNumber} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" required />
+                    <input name="license_number" defaultValue={getFormValue(editingCustomer as any, 'licenseNumber', 'license_number')} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" required />
                   </div>
                   <div className="space-y-4">
                     <label className="text-[12px] font-black text-red-700 uppercase px-2 flex items-center gap-2">⏱️ Expiration Permis</label>
-                    <input name="license_expiry" type="date" defaultValue={editingCustomer?.licenseExpiry} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" required />
+                    <input name="license_expiry" type="date" defaultValue={getFormValue(editingCustomer as any, 'licenseExpiry', 'license_expiry', true)} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" required />
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[12px] font-black text-red-700 uppercase px-2 flex items-center gap-2">📅 Délivrance Permis</label>
+                    <input name="license_issue_date" type="date" defaultValue={getFormValue(editingCustomer as any, 'licenseIssueDate', 'license_issue_date', true)} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" />
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[12px] font-black text-red-700 uppercase px-2 flex items-center gap-2">📍 Lieu Délivrance Permis</label>
+                    <input name="license_issue_place" defaultValue={getFormValue(editingCustomer as any, 'licenseIssuePlace', 'license_issue_place')} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" />
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[12px] font-black text-red-700 uppercase px-2 flex items-center gap-2">🎫 Type Doc</label>
+                    <select name="doc_type" defaultValue={getFormValue(editingCustomer as any, 'documentType', 'document_type') || 'Aucun'} className="w-full px-8 py-6 bg-white rounded-3xl font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 cursor-pointer appearance-none transition-all shadow-md">
+                      {t.docOptions.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[12px] font-black text-red-700 uppercase px-2 flex items-center gap-2">🔢 N° Doc</label>
+                    <input name="doc_number" defaultValue={getFormValue(editingCustomer as any, 'documentNumber', 'document_number')} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" />
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[12px] font-black text-red-700 uppercase px-2 flex items-center gap-2">📅 Délivrance</label>
+                    <input name="doc_issue_date" type="date" defaultValue={getFormValue(editingCustomer as any, 'documentDeliveryDate', 'document_delivery_date', true)} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" />
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[12px] font-black text-red-700 uppercase px-2 flex items-center gap-2">⏰ Expiration</label>
+                    <input name="doc_expiry_date" type="date" defaultValue={getFormValue(editingCustomer as any, 'documentExpiryDate', 'document_expiry_date', true)} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" />
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[12px] font-black text-red-700 uppercase px-2 flex items-center gap-2">📍 Adresse Délivrance</label>
+                    <input name="doc_issue_place" defaultValue={getFormValue(editingCustomer as any, 'documentDeliveryAddress', 'document_delivery_address')} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black text-lg border-2 border-red-200 focus:bg-red-50 focus:border-red-600 focus:ring-2 ring-red-300 transition-all shadow-md" />
                   </div>
                   <div className="space-y-4">
                     <label className="text-[12px] font-black text-orange-700 uppercase px-2 flex items-center gap-2">🏙️ Wilaya *</label>
-                    <select name="wilaya" defaultValue={editingCustomer?.wilaya || '16 - Alger'} className="w-full px-8 py-6 bg-white rounded-3xl font-black text-lg border-2 border-orange-200 focus:bg-orange-50 focus:border-orange-600 focus:ring-2 ring-orange-300 cursor-pointer appearance-none transition-all shadow-md">
+                      <select name="wilaya" defaultValue={getFormValue(editingCustomer as any, 'wilaya', 'wilaya') || '16 - Alger'} className="w-full px-8 py-6 bg-white rounded-3xl font-black text-lg border-2 border-orange-200 focus:bg-orange-50 focus:border-orange-600 focus:ring-2 ring-orange-300 cursor-pointer appearance-none transition-all shadow-md">
                        {ALGERIAN_WILAYAS.map(w => <option key={w} value={w}>{w}</option>)}
                     </select>
                   </div>
                   <div className="space-y-4 md:col-span-2">
                     <label className="text-[12px] font-black text-yellow-700 uppercase px-2 flex items-center gap-2">📄 Document Déposé à l'Agence</label>
-                    <select name="document_left" defaultValue={editingCustomer?.documentLeftAtStore || 'Aucun'} className="w-full px-8 py-6 bg-white rounded-3xl font-black text-lg border-2 border-yellow-300 focus:bg-yellow-50 focus:border-yellow-600 focus:ring-2 ring-yellow-300 cursor-pointer appearance-none transition-all shadow-md">
+                      <select name="document_left" defaultValue={getFormValue(editingCustomer as any, 'documentLeftAtStore', 'document_left_at_store') || 'Aucun'} className="w-full px-8 py-6 bg-white rounded-3xl font-black text-lg border-2 border-yellow-300 focus:bg-yellow-50 focus:border-yellow-600 focus:ring-2 ring-yellow-300 cursor-pointer appearance-none transition-all shadow-md">
                        {t.docOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                   </div>
@@ -274,7 +470,7 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
                 <div className="space-y-8">
                   <div className="space-y-4">
                     <label className="text-[12px] font-black text-purple-700 uppercase px-2 flex items-center gap-2">📮 Adresse Complète</label>
-                    <textarea name="address" defaultValue={editingCustomer?.address} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black border-2 border-purple-200 focus:bg-purple-50 focus:border-purple-600 focus:ring-2 ring-purple-300 h-32 resize-none transition-all shadow-md" />
+                    <textarea name="address" defaultValue={getFormValue(editingCustomer as any, 'address', 'address')} className="w-full px-8 py-6 bg-white rounded-3xl outline-none font-black border-2 border-purple-200 focus:bg-purple-50 focus:border-purple-600 focus:ring-2 ring-purple-300 h-32 resize-none transition-all shadow-md" />
                   </div>
                 </div>
               </section>
@@ -289,7 +485,7 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
                   {/* Profile Picture */}
                   <div className="bg-gradient-to-br from-blue-100 to-cyan-100 p-12 rounded-[3rem] text-center flex flex-col items-center border-3 border-blue-300 shadow-lg">
                     <div className="w-40 h-40 rounded-full overflow-hidden border-4 border-white shadow-2xl bg-white mb-8 flex items-center justify-center">
-                      {profilePreview ? <img src={profilePreview} className="w-full h-full object-cover" /> : <span className="text-7xl">👤</span>}
+                      {profilePreview ? <img loading="lazy" src={profilePreview} className="w-full h-full object-cover" /> : <span className="text-7xl">👤</span>}
                     </div>
                     <p className="text-[11px] font-black text-blue-700 uppercase tracking-widest mb-6">Photo de Profil</p>
                     <button type="button" onClick={() => fileInputRef.current?.click()} className="px-8 py-4 bg-white text-blue-600 rounded-2xl text-[12px] font-black uppercase shadow-lg hover:shadow-xl hover:scale-105 transition-all border-2 border-blue-300">📷 Charger Photo</button>
@@ -302,7 +498,7 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
                     <div className="grid grid-cols-3 gap-4 mb-8">
                       {docPreviews.map((doc, i) => (
                         <div key={i} className="relative aspect-square rounded-2xl overflow-hidden shadow-lg border-3 border-white group">
-                          <img src={doc} className="w-full h-full object-cover" />
+                          <img loading="lazy" src={doc} className="w-full h-full object-cover" />
                           <button type="button" onClick={() => setDocPreviews(prev => prev.filter((_, idx) => idx !== i))} className="absolute inset-0 bg-red-600/90 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-2xl font-black">✕</button>
                         </div>
                       ))}
@@ -344,12 +540,12 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-12">
-        {filteredCustomers.map((c) => (
+        {displayedCustomers.map((c) => (
           <div key={c.id} className="group bg-white rounded-[4rem] shadow-[0_30px_100px_-20px_rgba(0,0,0,0.06)] border border-gray-100 overflow-hidden hover:shadow-[0_50px_120px_-30px_rgba(59,130,246,0.15)] hover:-translate-y-4 transition-all duration-700 flex flex-col h-full">
             <div className="p-10 flex flex-col flex-1">
               <div className="flex items-center gap-8 mb-10">
-                <div className="w-28 h-28 rounded-full border-4 border-white shadow-2xl overflow-hidden group-hover:rotate-3 group-hover:scale-105 transition-transform duration-500">
-                  <img src={c.profilePicture || 'https://via.placeholder.com/200'} className="w-full h-full object-cover" alt="Profile" />
+                  <div className="w-28 h-28 rounded-full border-4 border-white shadow-2xl overflow-hidden group-hover:rotate-3 group-hover:scale-105 transition-transform duration-500">
+                  <img loading="lazy" src={c.profilePicture || 'https://via.placeholder.com/200'} className="w-full h-full object-cover" alt="Profile" />
                 </div>
                 <div>
                   <h3 className="text-3xl font-black text-gray-900 leading-tight truncate">{c.firstName} {c.lastName}</h3>
@@ -378,6 +574,12 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
         ))}
       </div>
 
+      {filteredCustomers.length > displayedCustomers.length && (
+        <div className="flex justify-center mt-8">
+          <button onClick={() => setDisplayCount(prev => prev + 50)} className="px-8 py-4 bg-blue-600 text-white rounded-2xl font-black">Charger plus</button>
+        </div>
+      )}
+
       {activeModal.type === 'delete' && activeModal.customer && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
            <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl p-12 text-center">
@@ -391,37 +593,160 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
       )}
 
       {activeModal.type === 'details' && activeModal.customer && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in" onClick={(e) => { if (e.target === e.currentTarget) setActiveModal({ type: null, customer: null }); }}>
           <div className="bg-white w-full max-w-6xl rounded-[4rem] overflow-hidden shadow-2xl animate-scale-in flex flex-col md:flex-row h-[90vh]">
             <div className="md:w-1/3 bg-gray-50 p-10 flex flex-col items-center border-r border-gray-100 overflow-y-auto custom-scrollbar">
               <div className="w-48 h-48 rounded-full border-8 border-white shadow-2xl overflow-hidden mb-8 flex-shrink-0">
                 <img src={activeModal.customer.profilePicture || 'https://via.placeholder.com/200'} className="w-full h-full object-cover" alt="Profile" />
               </div>
-              <h2 className="text-3xl font-black text-gray-900 text-center mb-10 leading-tight">{activeModal.customer.firstName}<br/>{activeModal.customer.lastName}</h2>
+              <h2 className="text-3xl font-black text-gray-900 text-center mb-10 leading-tight">{getField(activeModal.customer, 'firstName', 'first_name')}<br/>{getField(activeModal.customer, 'lastName', 'last_name')}</h2>
               <div className="w-full space-y-6">
                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Documents Scannés</p>
                 <div className="grid grid-cols-1 gap-4">
-                  {activeModal.customer.documentImages.map((url, i) => (
-                    <img key={i} src={url} className="w-full rounded-2xl shadow-sm border-2 border-white" />
+                  {((activeModal.customer as any).documentImages || []).map((url: string, i: number) => (
+                    <img key={i} loading="lazy" src={url} className="w-full rounded-2xl shadow-sm border-2 border-white" />
                   ))}
                 </div>
               </div>
             </div>
             <div className="md:w-2/3 p-16 overflow-y-auto relative bg-white custom-scrollbar text-left">
               <button onClick={() => setActiveModal({ type: null, customer: null })} className="absolute top-8 right-8 w-14 h-14 flex items-center justify-center bg-gray-50 rounded-full text-2xl">✕</button>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-10">
-                <div><p className="text-[10px] font-black text-blue-600 uppercase mb-2">Téléphone</p><p className="text-2xl font-black">{activeModal.customer.phone}</p></div>
-                <div><p className="text-[10px] font-black text-blue-600 uppercase mb-2">Email</p><p className="text-2xl font-black">{activeModal.customer.email || 'N/A'}</p></div>
-                <div><p className="text-[10px] font-black text-gray-400 uppercase mb-2">Identité</p><p className="text-xl font-bold">{activeModal.customer.idCardNumber}</p></div>
-                <div><p className="text-[10px] font-black text-gray-400 uppercase mb-2">Permis</p><p className="text-xl font-bold">{activeModal.customer.licenseNumber}</p></div>
-                <div className="sm:col-span-2 p-6 bg-red-50 rounded-3xl border border-red-100 flex items-center justify-between">
-                   <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">Document laissé à l'agence</p>
-                   <p className="text-xl font-black text-red-900">{activeModal.customer.documentLeftAtStore || 'Aucun'}</p>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {/* use safe accessor */}
+                {(() => {
+                  const c: any = activeModal.customer;
+                  return (
+                    <>
+                      <div className="p-6 bg-blue-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">📱</div>
+                        <div>
+                          <p className="text-[10px] font-black text-blue-600 uppercase mb-1">Téléphone</p>
+                          <p className="text-2xl font-black">{getField(c, 'phone', 'phone')}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-purple-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">📧</div>
+                        <div>
+                          <p className="text-[10px] font-black text-purple-600 uppercase mb-1">Email</p>
+                          <p className="text-2xl font-black">{getField(c, 'email', 'email') || 'N/A'}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-pink-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">🎂</div>
+                        <div>
+                          <p className="text-[10px] font-black text-pink-600 uppercase mb-1">Date Naissance</p>
+                          <p className="text-xl font-bold">{formatDate(getField(c, 'birthday', 'birthday'))}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-pink-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">📍</div>
+                        <div>
+                          <p className="text-[10px] font-black text-pink-600 uppercase mb-1">Lieu Naissance</p>
+                          <p className="text-xl font-bold">{getField(c, 'birthPlace', 'birth_place')}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-yellow-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">🆔</div>
+                        <div>
+                          <p className="text-[10px] font-black text-yellow-700 uppercase mb-1">N° CNI</p>
+                          <p className="text-xl font-bold">{getField(c, 'idCardNumber', 'id_card_number')}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-indigo-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">🎫</div>
+                        <div>
+                          <p className="text-[10px] font-black text-indigo-700 uppercase mb-1">Type Doc</p>
+                          <p className="text-xl font-bold">{getField(c, 'documentType', 'document_type')}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-indigo-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">🔢</div>
+                        <div>
+                          <p className="text-[10px] font-black text-indigo-700 uppercase mb-1">N° Doc</p>
+                          <p className="text-xl font-bold">{getField(c, 'documentNumber', 'document_number')}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-green-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">📅</div>
+                        <div>
+                          <p className="text-[10px] font-black text-green-700 uppercase mb-1">Délivrance</p>
+                          <p className="text-xl font-bold">{formatDate(getField(c, 'documentDeliveryDate', 'document_delivery_date'))}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-red-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">⏰</div>
+                        <div>
+                          <p className="text-[10px] font-black text-red-600 uppercase mb-1">Expiration Doc</p>
+                          <p className="text-xl font-bold">{formatDate(getField(c, 'documentExpiryDate', 'document_expiry_date'))}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-amber-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">📍</div>
+                        <div>
+                          <p className="text-[10px] font-black text-amber-700 uppercase mb-1">Lieu Délivrance</p>
+                          <p className="text-xl font-bold">{getField(c, 'documentDeliveryAddress', 'document_delivery_address')}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-gray-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">🚗</div>
+                        <div>
+                          <p className="text-[10px] font-black text-gray-500 uppercase mb-1">Permis</p>
+                          <p className="text-xl font-bold">{getField(c, 'licenseNumber', 'license_number')}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-gray-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">⏱️</div>
+                        <div>
+                          <p className="text-[10px] font-black text-gray-500 uppercase mb-1">Expiration Permis</p>
+                          <p className="text-xl font-bold">{formatDate(getField(c, 'licenseExpiry', 'license_expiry'))}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-gray-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">📅</div>
+                        <div>
+                          <p className="text-[10px] font-black text-gray-500 uppercase mb-1">Délivrance Permis</p>
+                          <p className="text-xl font-bold">{formatDate(getField(c, 'licenseIssueDate', 'license_issue_date'))}</p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-gray-50 rounded-2xl flex items-start gap-4">
+                        <div className="text-3xl">📍</div>
+                        <div>
+                          <p className="text-[10px] font-black text-gray-500 uppercase mb-1">Lieu Délivrance Permis</p>
+                          <p className="text-xl font-bold">{getField(c, 'licenseIssuePlace', 'license_issue_place')}</p>
+                        </div>
+                      </div>
+
+                      <div className="sm:col-span-2 p-6 bg-red-50 rounded-3xl border border-red-100 flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">Document laissé à l'agence</p>
+                          <p className="text-xl font-black text-red-900">{getField(c, 'documentLeftAtStore', 'document_left_at_store')}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Wilaya</p>
+                          <p className="text-xl font-black">{getField(c, 'wilaya', 'wilaya')}</p>
+                          <p className="text-sm text-gray-500 mt-2">{getField(c, 'address', 'address')}</p>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
               <div className="mt-16 p-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[3rem] text-white shadow-2xl flex justify-between items-center">
-                <div><p className="text-[10px] font-black uppercase opacity-60 mb-2">Valeur Client</p><p className="text-6xl font-black">{activeModal.customer.totalSpent.toLocaleString()} DZ</p></div>
-                <div className="text-right"><p className="text-[10px] font-black uppercase opacity-60 mb-2">Total Locations</p><p className="text-6xl font-black">{activeModal.customer.totalReservations}</p></div>
+                <div><p className="text-[10px] font-black uppercase opacity-60 mb-2">Valeur Client</p><p className="text-6xl font-black">{(activeModal.customer?.totalSpent || 0).toLocaleString()} DZ</p></div>
+                <div className="text-right"><p className="text-[10px] font-black uppercase opacity-60 mb-2">Total Locations</p><p className="text-6xl font-black">{activeModal.customer?.totalReservations || 0}</p></div>
               </div>
             </div>
           </div>

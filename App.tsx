@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Language, Vehicle, Agency, Customer, Worker, Reservation } from './types';
 import { MOCK_WORKERS, DEFAULT_TEMPLATES } from './constants';
 import { supabase } from './lib/supabase';
+import { apiFetch } from './lib/api';
 import LoginPage from './components/LoginPage';
 import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
@@ -36,32 +37,40 @@ const App: React.FC = () => {
   const [workers] = useState<Worker[]>(MOCK_WORKERS);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [maintenances, setMaintenances] = useState<any[]>([]);
+  const [systemConfig, setSystemConfig] = useState({ 
+    storeName: 'DriveFlow', 
+    logo_url: null as string | null,
+    address: '',
+    phone: '',
+    email: ''
+  });
 
-  useEffect(() => {
-    const initAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        fetchAndSetUser(session.user.id, session.user.email || '');
-        refreshData();
+  const fetchSystemConfig = async () => {
+    try {
+      const { data } = await supabase.from('system_config').select('*').limit(1);
+      if (data && Array.isArray(data) && data.length > 0) {
+        const cfg = data[0];
+        const config = {
+          storeName: cfg.store_name || 'DriveFlow',
+          logo_url: cfg.logo_url || null,
+          address: cfg.address || '',
+          phone: cfg.phone || '',
+          email: cfg.email || ''
+        };
+        setSystemConfig(config);
+        // Save to localStorage so Sidebar can read it
+        localStorage.setItem('app.system_config', JSON.stringify(config));
+        // Dispatch custom event for components listening to config changes
+        window.dispatchEvent(new CustomEvent('app:config:update', { detail: config }));
       }
-    };
-    initAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        fetchAndSetUser(session.user.id, session.user.email || '');
-        refreshData();
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+    } catch (err) {
+      console.warn('Failed to load system config:', err);
+    }
+  };
 
   const refreshData = async () => {
     try {
-      await Promise.allSettled([fetchVehicles(), fetchAgencies(), fetchCustomers(), fetchReservations(), fetchExpenses(), fetchMaintenances()]);
+      await Promise.allSettled([fetchVehicles(), fetchAgencies(), fetchCustomers(), fetchReservations(), fetchExpenses(), fetchMaintenances(), fetchSystemConfig()]);
     } catch (e) {
       console.error(e);
     }
@@ -110,26 +119,79 @@ const App: React.FC = () => {
   };
 
   const fetchCustomers = async () => {
-    const { data } = await supabase.from('customers').select('*').order('created_at', { ascending: false });
-    if (data) {
-      const formatted = data.map(c => ({
+    // OPTIMIZATION: Fetch only initial batch + essential fields for faster loading
+    // Use paginated API endpoint for better performance
+    try {
+      // Try API endpoint first for pagination support
+      const res = await apiFetch('/api/customers/list?page=0&limit=200');
+      const json = await res.json();
+      const data = json.data || [];
+      
+      const formatted = data.map((c: any) => ({
         id: c.id,
         firstName: c.first_name,
         lastName: c.last_name,
         phone: c.phone,
         email: c.email,
         idCardNumber: c.id_card_number,
+        documentNumber: c.document_number,
         wilaya: c.wilaya,
         address: c.address,
         licenseNumber: c.license_number,
         licenseExpiry: c.license_expiry,
+        licenseIssueDate: c.license_issue_date,
+        licenseIssuePlace: c.license_issue_place,
         profilePicture: c.profile_picture,
+        birthday: c.birthday,
+        birthPlace: c.birth_place,
+        documentType: c.document_type,
+        documentDeliveryDate: c.document_delivery_date,
+        documentDeliveryAddress: c.document_delivery_address,
+        documentExpiryDate: c.document_expiry_date,
         documentImages: c.document_images || [],
         documentLeftAtStore: c.document_left_at_store,
         totalReservations: c.total_reservations || 0,
         totalSpent: c.total_spent || 0
       }));
-      setCustomers(formatted);
+      setCustomers(formatted as any);
+    } catch (err: any) {
+      // Fallback to Supabase with limited fields if API fails
+      console.warn('API fetch failed, using Supabase fallback', err);
+      const { data } = await supabase
+        .from('customers')
+        .select('id,first_name,last_name,phone,email,id_card_number,document_number,wilaya,address,license_number,license_expiry,license_issue_date,license_issue_place,profile_picture,birthday,birth_place,document_type,document_delivery_date,document_delivery_address,document_expiry_date,document_images,document_left_at_store,total_reservations,total_spent')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      
+      if (data) {
+        const formatted = data.map(c => ({
+          id: c.id,
+          firstName: c.first_name,
+          lastName: c.last_name,
+          phone: c.phone,
+          email: c.email,
+          idCardNumber: c.id_card_number,
+          documentNumber: c.document_number,
+          wilaya: c.wilaya,
+          address: c.address,
+          licenseNumber: c.license_number,
+          licenseExpiry: c.license_expiry,
+          licenseIssueDate: c.license_issue_date,
+          licenseIssuePlace: c.license_issue_place,
+          profilePicture: c.profile_picture,
+          birthday: c.birthday,
+          birthPlace: c.birth_place,
+          documentType: c.document_type,
+          documentDeliveryDate: c.document_delivery_date,
+          documentDeliveryAddress: c.document_delivery_address,
+          documentExpiryDate: c.document_expiry_date,
+          documentImages: c.document_images || [],
+          documentLeftAtStore: c.document_left_at_store,
+          totalReservations: c.total_reservations || 0,
+          totalSpent: c.total_spent || 0
+        }));
+        setCustomers(formatted as any);
+      }
     }
   };
 
@@ -199,6 +261,31 @@ const App: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        fetchAndSetUser(session.user.id, session.user.email || '');
+        refreshData();
+      }
+    };
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        fetchAndSetUser(session.user.id, session.user.email || '');
+        refreshData();
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    // Fetch system config on app startup
+    fetchSystemConfig();
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -215,7 +302,26 @@ const App: React.FC = () => {
       case 'agencies': 
         return <AgenciesPage lang={lang} initialAgencies={agencies} onUpdate={fetchAgencies} />;
       case 'planner':
-        return <PlannerPage lang={lang} customers={customers} vehicles={vehicles} agencies={agencies} workers={workers} reservations={reservations} onUpdateReservation={refreshData} onAddReservation={refreshData} onDeleteReservation={refreshData} />;
+        return <PlannerPage 
+          lang={lang} 
+          customers={customers} 
+          vehicles={vehicles} 
+          agencies={agencies} 
+          workers={workers} 
+          reservations={reservations} 
+          onUpdateReservation={refreshData} 
+          onAddReservation={refreshData} 
+          onDeleteReservation={refreshData}
+          templates={templates}
+          onUpdateTemplates={setTemplates}
+          storeLogo={systemConfig.logo_url || undefined}
+          storeInfo={{
+            name: systemConfig.storeName,
+            phone: systemConfig.phone,
+            email: systemConfig.email,
+            address: systemConfig.address
+          }}
+        />;
       case 'team':
         return <WorkersPage lang={lang} initialWorkers={workers} onUpdate={()=>{}} />;
       case 'billing':

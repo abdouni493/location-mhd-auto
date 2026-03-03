@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Language } from '../types';
 import GradientButton from '../components/GradientButton';
+import { apiPost as centralApiPost } from '../lib/api';
 
 interface ConfigPageProps {
   lang: Language;
@@ -13,6 +14,9 @@ const ConfigPage: React.FC<ConfigPageProps> = ({ lang }) => {
   const [activeTab, setActiveTab] = useState<ConfigTab>('general');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [configId, setConfigId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
   
   // Centralized configuration state to prevent data loss on tab switch
   const [configData, setConfigData] = useState({
@@ -30,6 +34,7 @@ const ConfigPage: React.FC<ConfigPageProps> = ({ lang }) => {
     toleranceKM: 20,
     excessPrice: 15,
     unlimitedPrice: 2000,
+    phone: '',
     username: 'admin',
     email: 'contact@driveflow.dz',
     newPassword: '',
@@ -166,28 +171,125 @@ const ConfigPage: React.FC<ConfigPageProps> = ({ lang }) => {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
 
+  // Use centralized API helper with environment-aware URL
+  const apiPost = async (path: string, body: any) => {
+    try {
+      const res = await centralApiPost(path, body);
+      const text = await res.text();
+      if (!text) return { data: null };
+      return JSON.parse(text);
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  useEffect(() => { fetchConfig(); }, []);
+
+  const fetchConfig = async () => {
+    try {
+      setLoading(true);
+      const res = await apiPost('/api/from/system_config/select', { columns: '*', filters: { is_active: true }, limit: 1 });
+      const cfg = Array.isArray(res.data) && res.data.length ? res.data[0] : null;
+      if (cfg) {
+        setConfigId(cfg.id);
+        setConfigData(prev => ({
+          ...prev,
+          storeName: cfg.store_name || prev.storeName,
+          slogan: cfg.slogan || prev.slogan,
+          address: cfg.address || prev.address,
+          facebook: cfg.facebook || prev.facebook,
+          instagram: cfg.instagram || prev.instagram,
+          whatsapp: cfg.whatsapp || prev.whatsapp,
+          penaltyCalcType: cfg.penalty_calc_type || prev.penaltyCalcType,
+          penaltyAmount: cfg.penalty_amount ?? prev.penaltyAmount,
+          penaltyTolerance: cfg.penalty_tolerance ?? prev.penaltyTolerance,
+          fuelMissingPrice: cfg.fuel_missing_price ?? prev.fuelMissingPrice,
+          dailyLimit: cfg.daily_mileage_limit ?? prev.dailyLimit,
+          toleranceKM: cfg.mileage_tolerance ?? prev.toleranceKM,
+          excessPrice: cfg.excess_price ?? prev.excessPrice,
+          unlimitedPrice: cfg.unlimited_price ?? prev.unlimitedPrice,
+          logo: cfg.logo_url || prev.logo || ''
+        } as any));
+        if (cfg.logo_url) setLogoPreview(cfg.logo_url);
+      }
+      // fetch admin email optionally
+      const adm = await apiPost('/api/from/admin_security/select', { columns: 'username,email', limit: 1 });
+      const admin = Array.isArray(adm.data) && adm.data.length ? adm.data[0] : null;
+      if (admin) setConfigData(prev => ({ ...prev, username: admin.username || prev.username, email: admin.email || prev.email }));
+    } catch (err: any) {
+      console.error('Error loading config:', err);
+      setError('Failed to load configuration');
+    } finally { setLoading(false); }
+  };
+
   const handleInputChange = (field: keyof typeof configData, value: any) => {
     setConfigData(prev => ({ ...prev, [field]: value }));
   };
 
   const handleSave = () => {
-    setIsSaving(true);
-    setSaveSuccess(false);
-    
-    // Simulate API delay
-    setTimeout(() => {
-      setIsSaving(false);
-      setSaveSuccess(true);
-      // Auto-hide success message after 3 seconds
-      setTimeout(() => setSaveSuccess(false), 3000);
-    }, 1200);
+    (async () => {
+      try {
+        setIsSaving(true);
+        setSaveSuccess(false);
+
+        const configUpdateData = {
+          store_name: configData.storeName,
+          slogan: configData.slogan,
+          address: configData.address,
+          facebook: configData.facebook,
+          instagram: configData.instagram,
+          whatsapp: configData.whatsapp,
+          penalty_calc_type: configData.penaltyCalcType,
+          penalty_amount: configData.penaltyAmount,
+          penalty_tolerance: configData.penaltyTolerance,
+          fuel_missing_price: configData.fuelMissingPrice,
+          daily_mileage_limit: configData.dailyLimit,
+          mileage_tolerance: configData.toleranceKM,
+          excess_price: configData.excessPrice,
+          unlimited_price: configData.unlimitedPrice,
+          logo_url: logoPreview || configData.logo
+        };
+
+        if (configId) {
+          const upd = await apiPost('/api/from/system_config/update', { data: configUpdateData, where: { col: 'id', val: configId } });
+          if (upd?.error) throw new Error(upd.error.message || 'Update failed');
+        } else {
+          const ins = await apiPost('/api/from/system_config/insert', { rows: [configUpdateData] });
+          if (ins?.error) throw new Error(ins.error.message || 'Insert failed');
+          // server returns inserted rows in ins.data (array)
+          if (ins && Array.isArray(ins.data) && ins.data[0] && ins.data[0].id) setConfigId(ins.data[0].id);
+        }
+
+        // persist to localStorage and broadcast for sidebar
+        try {
+          const cfg = { storeName: configUpdateData.store_name, logo_url: configUpdateData.logo_url };
+          window.localStorage.setItem('app.system_config', JSON.stringify(cfg));
+          window.localStorage.setItem('app.system_config.update', String(Date.now()));
+          window.dispatchEvent(new CustomEvent('app:config:update', { detail: cfg }));
+        } catch (e) {}
+
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      } catch (err: any) {
+        console.error('Error saving config:', err);
+        setError(err?.message || 'Failed to save configuration');
+      } finally {
+        setIsSaving(false);
+      }
+    })();
   };
 
   // Fix: safely handle file selection to avoid "unknown" to "Blob" error by narrowing the type
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setLogoPreview(URL.createObjectURL(file));
+      // Use FileReader to convert to base64 instead of blob URL (which expires)
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        setLogoPreview(base64String);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -283,6 +385,16 @@ const ConfigPage: React.FC<ConfigPageProps> = ({ lang }) => {
                         value={configData.address}
                         onChange={(e) => handleInputChange('address', e.target.value)}
                         className="w-full px-6 py-4 bg-gray-50 rounded-2xl outline-none font-bold focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all h-32 border-2 border-transparent focus:border-blue-500 resize-none" 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 px-2">📞 Téléphone</label>
+                      <input 
+                        type="text" 
+                        value={configData.phone}
+                        onChange={(e) => handleInputChange('phone', e.target.value)}
+                        className="w-full px-6 py-4 bg-gray-50 rounded-2xl outline-none font-bold focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all border-2 border-transparent focus:border-blue-500" 
+                        placeholder="+213 550 00 00 00"
                       />
                     </div>
                   </div>
