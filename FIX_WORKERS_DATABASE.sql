@@ -111,9 +111,10 @@ GROUP BY w.id, w.full_name, w.username, w.role, w.is_active, w.total_paid, w.abs
 -- WHERE wt.worker_id = (SELECT id FROM workers WHERE username = 'youssef_abdouni')
 -- ORDER BY wt.date DESC;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON workers TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON worker_transactions TO authenticated;
-GRANT SELECT ON worker_stats TO authenticated;
+-- Note: GRANT statements commented out - uncomment if your role exists
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON workers TO authenticated;
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON worker_transactions TO authenticated;
+-- GRANT SELECT ON worker_stats TO authenticated;
 
 -- ============================================================================
 -- DIAGNOSTICS - Run these to verify the data
