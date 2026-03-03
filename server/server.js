@@ -819,7 +819,8 @@ app.use((err, req, res, next) => {
 const port = process.env.PORT || 4000;
 
 // Start HTTP server immediately so frontend can reach API even while DB init retries
-app.listen(port, () => console.log(`DB proxy server listening on http://localhost:${port}`));
+// Listen on 0.0.0.0 to accept connections from any interface (required for Fly.io, Render, Heroku)
+app.listen(port, '0.0.0.0', () => console.log(`DB proxy server listening on http://0.0.0.0:${port} (port ${port})`));
 
 // Initialize DB in background (will retry until connected)
 initDb().catch((err) => {

@@ -1,0 +1,44 @@
+# Fly.io configuration for driveflow backend
+app = "location-mhd-auto"
+primary_region = "sjc" # San Jose - adjust to your preferred region
+
+[build]
+  # Use default Node builder
+  builder = "paketobuildpacks/builder:full"
+
+[env]
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 4000 # Your app listens on this port
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 4000
+  
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 1000
+    soft_limit = 800
+
+[[mounts]]
+  # Optional: if you need persistent storage
+  # source = "data"
+  # destination = "/data"
+  # processes = ["app"]
+
+[checks]
+  # Health check endpoint
+  [checks.http]
+    grace_period = "30s"
+    interval = "10s"
+    method = "GET"
+    path = "/api/from/system_config/select"
+    protocol = "http"
+    timeout = "5s"
+    tls_skip_verify = false
