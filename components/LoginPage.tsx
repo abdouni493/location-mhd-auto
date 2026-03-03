@@ -33,21 +33,58 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, lang, onLanguageToggle }
     setError(null);
 
     try {
-      const email = identifier.trim();
-      const isAdmin = email.toLowerCase() === 'admin@admin.com';
+      const id = identifier.trim();
+      const pass = password.trim();
 
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      // Check if it's admin account
+      const isAdmin = id.toLowerCase() === 'admin@admin.com';
+      
+      if (isAdmin) {
+        // Try Supabase auth for admin
+        const { data, error: authError } = await supabase.auth.signInWithPassword({
+          email: id,
+          password: pass,
+        });
 
-      if (authError) throw authError;
+        if (authError) throw authError;
 
-      // SUCCESS: Force immediate adoption of user state to avoid getting "stuck"
-      if (data.user) {
+        if (data.user) {
+          onLogin({ 
+            username: id.split('@')[0], 
+            role: 'admin' 
+          });
+        }
+      } else {
+        // Try to login as worker - query database directly
+        const response = await apiFetch('/api/from/workers/select', {
+          columns: 'id, username, role, password, is_active',
+          filters: {
+            username: id
+          }
+        });
+
+        const result = await response.json();
+        const workers = result.data || [];
+        
+        if (workers.length === 0) {
+          throw new Error(lang === 'fr' ? "Utilisateur non trouvé" : "المستخدم غير موجود");
+        }
+
+        const worker = workers[0];
+
+        // Verify password (case-sensitive exact match)
+        if (worker.password !== pass) {
+          throw new Error(lang === 'fr' ? "Mot de passe incorrect" : "كلمة المرور غير صحيحة");
+        }
+
+        // Check if worker is active
+        if (!worker.is_active) {
+          throw new Error(lang === 'fr' ? "Compte utilisateur désactivé" : "حساب المستخدم معطل");
+        }
+
         onLogin({ 
-          username: email.split('@')[0], 
-          role: isAdmin ? 'admin' : 'worker' 
+          username: worker.username, 
+          role: worker.role 
         });
       }
     } catch (err: any) {
@@ -107,7 +144,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, lang, onLanguageToggle }
             <form onSubmit={handleSubmit} className="space-y-8">
               <div className="space-y-3">
                 <label className={`block text-[10px] font-black text-gray-900 tracking-widest uppercase px-2 ${isRtl ? 'text-right' : ''}`}>
-                  {lang === 'fr' ? "Email ou Utilisateur" : "البريد الإلكتروني"}
+                  {lang === 'fr' ? "Email ou Nom d'utilisateur" : "البريد الإلكتروني أو اسم المستخدم"}
                 </label>
                 <div className="relative group">
                   <span className={`absolute inset-y-0 ${isRtl ? 'right-6' : 'left-6'} flex items-center text-gray-300 group-focus-within:text-blue-600 transition-colors text-xl`}>👤</span>
@@ -116,7 +153,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, lang, onLanguageToggle }
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
                     className={`w-full ${isRtl ? 'pr-16 pl-6 text-right' : 'pl-16 pr-6'} py-5 bg-gray-50 border-2 border-transparent focus:bg-white focus:border-blue-500 rounded-[2rem] text-gray-900 font-bold outline-none transition-all duration-300 placeholder-gray-300`}
-                    placeholder="admin@admin.com"
+                    placeholder={lang === 'fr' ? "admin@admin.com ou username" : "البريد الإلكتروني أو اسم المستخدم"}
                     required
                     disabled={loading}
                   />

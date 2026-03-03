@@ -211,6 +211,13 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
 
     try {
       const formData = new FormData(e.currentTarget);
+      
+      // Only include photo if it's a valid data URL (not blob:)
+      let photo = photoPreview;
+      if (photo && !photo.startsWith('data:')) {
+        photo = null;
+      }
+      
       const workerData = {
         full_name: formData.get('fullName') as string,
         birthday: formData.get('birthday') as string,
@@ -223,7 +230,7 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
         amount: parseFloat(formData.get('amount') as string),
         username: formData.get('username') as string,
         password: formData.get('password') as string,
-        photo: photoPreview,
+        photo: photo,
         absences: editingWorker?.absences || 0,
         total_paid: editingWorker?.totalPaid || 0,
         created_at: editingWorker?.id ? undefined : new Date().toISOString()
