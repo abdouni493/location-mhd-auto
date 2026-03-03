@@ -640,7 +640,7 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
         discount: formData.discount || 0,
         with_tva: formData.withTVA || false,
         tva_percentage: formData.tvaPercentage || 19,
-        options: formData.tempOptions
+        options: (formData.tempOptions && formData.tempOptions.length > 0) ? formData.tempOptions : null
       };
 
       // insert reservation and get inserted row
@@ -662,8 +662,8 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
             equipment: pendingInspection.equipment || {},
             comfort: pendingInspection.comfort || {},
             cleanliness: pendingInspection.cleanliness || {},
-            exterior_photos: pendingInspection.exteriorPhotos || [],
-            interior_photos: pendingInspection.interiorPhotos || [],
+            exterior_photos: (pendingInspection.exteriorPhotos && pendingInspection.exteriorPhotos.length > 0) ? pendingInspection.exteriorPhotos : null,
+            interior_photos: (pendingInspection.interiorPhotos && pendingInspection.interiorPhotos.length > 0) ? pendingInspection.interiorPhotos : null,
             signature: pendingInspection.signature || '',
             notes: pendingInspection.notes || ''
           };
@@ -1483,7 +1483,7 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                             license_issue_date: newClientData.licenseIssueDate || null,
                             license_issue_place: newClientData.licenseIssuePlace || null,
                             profile_picture: profilePreviewNew || newClientData.profilePicture || null,
-                            document_images: docPreviewsNew || [],
+                            document_images: (docPreviewsNew && docPreviewsNew.length > 0) ? docPreviewsNew : null,
                             document_left_at_store: newClientData.documentLeftAtStore || 'Aucun',
                             birthday: newClientData.birthday || null,
                             birth_place: newClientData.birthPlace || null

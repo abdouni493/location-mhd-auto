@@ -139,7 +139,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ lang, initialVehicles = [],
       tech_control_date: fd.get('techControl') as string,
       insurance_info: fd.get('insuranceInfo') as string,
       main_image: mainImg,
-      secondary_images: secondaryImgs
+      secondary_images: secondaryImgs.length > 0 ? secondaryImgs : null
     };
 
     try {
