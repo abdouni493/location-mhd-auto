@@ -555,13 +555,16 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
                   >
                     {/* New centered header with top image */}
                     <div className="flex flex-col items-center mb-6">
-                      <div className="w-28 h-28 rounded-full overflow-hidden mb-4 shadow-lg border-4 border-white bg-white relative">
-                        <img
-                          src={(worker.photo && (worker.photo.startsWith('data:') || worker.photo.startsWith('http') || worker.photo.startsWith('blob:'))) ? worker.photo : ('https://via.placeholder.com/112?text=' + (worker.fullName ? worker.fullName.charAt(0) : ''))}
-                          className="w-full h-full object-cover"
-                          alt={worker.fullName || ''}
-                          onError={(e) => { (e.currentTarget as HTMLImageElement).src = 'https://via.placeholder.com/112?text=' + (worker.fullName ? worker.fullName.charAt(0) : ''); }}
-                        />
+                      <div className="w-28 h-28 rounded-full overflow-hidden mb-4 shadow-lg border-4 border-white bg-gradient-to-br from-blue-100 to-blue-50 relative flex items-center justify-center">
+                        {worker.photo && (worker.photo.startsWith('data:') || worker.photo.startsWith('http')) ? (
+                          <img
+                            src={worker.photo}
+                            className="w-full h-full object-cover"
+                            alt={worker.fullName || ''}
+                          />
+                        ) : (
+                          <span className="text-6xl font-black">👤</span>
+                        )}
                       </div>
                       <h3 className="text-xl font-black text-gray-900 text-center">{worker.fullName}</h3>
                       <p className="text-[12px] font-black bg-clip-text text-transparent uppercase tracking-widest text-center mt-1" style={{backgroundImage: 'linear-gradient(to right, #2563eb, #7c3aed)'}}>
@@ -683,13 +686,16 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
           <ModalContainer title={stripLeadingEmojis(currentT.details)} onClose={handleCloseModal}>
             <div className="space-y-4">
               <div className="flex items-center gap-4">
-                <div className="w-24 h-24 rounded-full overflow-hidden border-2">
-                  <img
-                    src={(activeModal.worker.photo && (activeModal.worker.photo.startsWith('data:') || activeModal.worker.photo.startsWith('http') || activeModal.worker.photo.startsWith('blob:'))) ? activeModal.worker.photo : ('https://via.placeholder.com/96?text=' + (activeModal.worker.fullName ? activeModal.worker.fullName.charAt(0) : ''))}
-                    alt={activeModal.worker.fullName}
-                    className="w-full h-full object-cover"
-                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = 'https://via.placeholder.com/96?text=' + (activeModal.worker.fullName ? activeModal.worker.fullName.charAt(0) : ''); }}
-                  />
+                <div className="w-24 h-24 rounded-full overflow-hidden border-2 bg-gradient-to-br from-blue-100 to-blue-50 flex items-center justify-center">
+                  {activeModal.worker.photo && (activeModal.worker.photo.startsWith('data:') || activeModal.worker.photo.startsWith('http')) ? (
+                    <img
+                      src={activeModal.worker.photo}
+                      alt={activeModal.worker.fullName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-4xl">👤</span>
+                  )}
                 </div>
                 <div>
                   <h3 className="text-xl font-black">{activeModal.worker.fullName}</h3>

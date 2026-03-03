@@ -20,14 +20,9 @@ DROP FUNCTION IF EXISTS refresh_customers_with_pictures();
 DROP TRIGGER IF EXISTS customers_display_refresh ON public.customers;
 DROP FUNCTION IF EXISTS refresh_customers_display();
 
--- Refresh the views manually once
+-- Refresh the views manually once (only if they exist)
+-- Note: REFRESH MATERIALIZED VIEW doesn't support IF EXISTS, so we only refresh the one we know exists
 REFRESH MATERIALIZED VIEW vehicles_dashboard_view;
-REFRESH MATERIALIZED VIEW customers_dashboard_view;
-
--- If these views exist, refresh them too
-REFRESH MATERIALIZED VIEW IF EXISTS vehicles_with_images_view;
-REFRESH MATERIALIZED VIEW IF EXISTS customers_with_pictures_view;
-REFRESH MATERIALIZED VIEW IF EXISTS customers_display_view;
 
 -- Note: Views will now be refreshed on-demand by the application
 -- If you need periodic background refresh, use pg_cron instead:
