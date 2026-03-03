@@ -98,20 +98,24 @@ FROM public.vehicles;
 -- 4. REFRESH MATERIALIZED VIEW AFTER VEHICLE UPDATES
 -- ============================================================================
 
-CREATE OR REPLACE FUNCTION refresh_vehicles_dashboard() 
-RETURNS TRIGGER AS $$
-BEGIN
-  REFRESH MATERIALIZED VIEW CONCURRENTLY vehicles_dashboard_view;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- Note: Automatic view refresh on each row is disabled to prevent concurrent refresh conflicts
+-- The materialized view will be refreshed on-demand by the application as needed
+-- If you need periodic refresh, use pg_cron instead (see bottom of this file)
 
-DROP TRIGGER IF EXISTS vehicles_dashboard_refresh ON public.vehicles;
+-- CREATE OR REPLACE FUNCTION refresh_vehicles_dashboard() 
+-- RETURNS TRIGGER AS $$
+-- BEGIN
+--   REFRESH MATERIALIZED VIEW vehicles_dashboard_view;
+--   RETURN NEW;
+-- END;
+-- $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER vehicles_dashboard_refresh
-AFTER INSERT OR UPDATE OR DELETE ON public.vehicles
-FOR EACH ROW
-EXECUTE FUNCTION refresh_vehicles_dashboard();
+-- DROP TRIGGER IF EXISTS vehicles_dashboard_refresh ON public.vehicles;
+
+-- CREATE TRIGGER vehicles_dashboard_refresh
+-- AFTER INSERT OR UPDATE OR DELETE ON public.vehicles
+-- FOR EACH ROW
+-- EXECUTE FUNCTION refresh_vehicles_dashboard();
 
 -- ============================================================================
 -- 5. OPTIMIZE CUSTOMERS TABLE (FAST LOADING)
