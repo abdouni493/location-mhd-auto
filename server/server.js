@@ -23,21 +23,40 @@ process.on('unhandledRejection', (err) => {
 // ============================================================
 app.use(compression());
 
-// Enhanced CORS configuration
-app.use(cors({
+// CORS configuration - Allow all origins including Vercel
+const corsOptions = {
   origin: function(origin, callback) {
-    // Allow all origins for now (can be restricted later)
-    callback(null, true);
+    // List of allowed origins
+    const allowedOrigins = [
+      'https://location-mhd-auto.vercel.app',
+      'https://location-mhd-auto.fly.dev',
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://localhost:4000',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:4000'
+    ];
+    
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      // Still allow but log it
+      console.warn(`[CORS] Request from origin: ${origin}`);
+      callback(null, true); // Allow anyway to not break anything
+    }
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['X-Total-Count', 'X-Page-Number'],
+  exposedHeaders: ['X-Total-Count', 'X-Page-Number', 'X-Request-Id'],
   credentials: false,
-  maxAge: 86400 // 24 hours
-}));
+  maxAge: 86400
+};
 
-// Handle preflight requests explicitly
-app.options('*', cors());
+app.use(cors(corsOptions));
+
+// Explicit OPTIONS handler for preflight requests
+app.options('*', cors(corsOptions));
 
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ limit: '200mb' }));
