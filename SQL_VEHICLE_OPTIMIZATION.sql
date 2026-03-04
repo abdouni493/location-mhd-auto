@@ -64,8 +64,8 @@ SELECT
     ROUND(AVG(mileage)::NUMERIC, 0) as avg_mileage
 FROM public.vehicles;
 
--- Index on the materialized view for faster refreshes
-CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_stats ON vehicle_stats((COUNT(*)));
+-- Note: Materialized views don't need indexes for these aggregate stats
+-- Just refresh periodically: REFRESH MATERIALIZED VIEW vehicle_stats;
 
 -- ==========================================================================
 -- 5. BATCH INSERT OPTIMIZATION

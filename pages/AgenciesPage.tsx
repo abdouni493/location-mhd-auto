@@ -1,7 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Language, Agency } from '../types';
 import { supabase } from '../lib/supabase';
+import { apiPost } from '../lib/api';
 import GradientButton from '../components/GradientButton';
 
 interface AgenciesPageProps {
@@ -17,9 +18,37 @@ const AgenciesPage: React.FC<AgenciesPageProps> = ({ lang, initialAgencies = [],
   const [editingAgency, setEditingAgency] = useState<Agency | null>(null);
   const [activeModal, setActiveModal] = useState<{ type: ModalType; agency: Agency | null }>({ type: null, agency: null });
   const [searchTerm, setSearchTerm] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [agencies, setAgencies] = useState<Agency[]>(initialAgencies);
   
   const isRtl = lang === 'ar';
+
+  // 🚀 Fetch agencies data efficiently on mount
+  useEffect(() => {
+    const loadAgencies = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const result = await apiPost('/api/from/agencies/select', { columns: '*' });
+        
+        if (result?.data) {
+          setAgencies(result.data);
+        } else {
+          setAgencies([]);
+        }
+      } catch (err) {
+        console.error('Failed to load agencies:', err);
+        setError('Erreur lors du chargement des agences');
+        setAgencies([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadAgencies();
+  }, []); // ✅ Fetch once on mount only
 
   const t = {
     fr: {
@@ -103,10 +132,38 @@ const AgenciesPage: React.FC<AgenciesPageProps> = ({ lang, initialAgencies = [],
     }
   };
 
-  const filteredAgencies = initialAgencies.filter(a => 
+  const filteredAgencies = agencies.filter(a => 
     a.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (a.address || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // 📊 Show loading state
+  if (loading && agencies.length === 0) {
+    return (
+      <div className={`p-4 md:p-12 flex items-center justify-center min-h-screen ${isRtl ? 'font-arabic text-right' : ''}`}>
+        <div className="text-center">
+          <div className="mb-6 inline-block">
+            <div className="w-16 h-16 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin"></div>
+          </div>
+          <p className="text-xl font-black text-gray-600">Chargement des agences...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ⚠️ Show error state
+  if (error && agencies.length === 0) {
+    return (
+      <div className={`p-4 md:p-12 flex items-center justify-center min-h-screen ${isRtl ? 'font-arabic text-right' : ''}`}>
+        <div className="text-center bg-red-50 p-8 rounded-[2rem] border border-red-200">
+          <p className="text-xl font-black text-red-600 mb-4">{error}</p>
+          <button onClick={() => window.location.reload()} className="px-6 py-3 bg-red-600 text-white rounded-full font-bold hover:bg-red-700">
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (isFormOpen) {
     return (

@@ -1,19 +1,158 @@
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Language, Vehicle, Customer, Reservation, User } from '../types';
+import { apiPost } from '../lib/api';
 
 interface DashboardPageProps {
   lang: Language;
   onNavigate: (id: string) => void;
   user: User;
-  reservations: Reservation[];
-  vehicles: Vehicle[];
-  customers: Customer[];
+  reservations?: Reservation[];
+  vehicles?: Vehicle[];
+  customers?: Customer[];
   maintenances?: any[];
 }
 
-const DashboardPage: React.FC<DashboardPageProps> = ({ lang, onNavigate, user, reservations, vehicles, customers, maintenances = [] }) => {
+const DashboardPage: React.FC<DashboardPageProps> = ({ lang, onNavigate, user, reservations: initialReservations = [], vehicles: initialVehicles = [], customers: initialCustomers = [], maintenances: initialMaintenances = [] }) => {
   const isRtl = lang === 'ar';
+  
+  // 🚀 Fast state management with useEffect
+  const [reservations, setReservations] = useState<Reservation[]>(initialReservations);
+  const [vehicles, setVehicles] = useState<Vehicle[]>(initialVehicles);
+  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
+  const [maintenances, setMaintenances] = useState<any[]>(initialMaintenances);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // ⚡ Fetch all data in parallel on mount
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Fetch all data in parallel using Promise.all
+        const [resRes, vehiclesRes, customersRes, maintenanceRes] = await Promise.all([
+          apiPost('/api/from/reservations/select', { columns: '*' }),
+          apiPost('/api/from/vehicles/select', { columns: '*' }),
+          apiPost('/api/from/customers/select', { columns: '*' }),
+          apiPost('/api/from/maintenance/select', { columns: '*' })
+        ]);
+
+        // Process reservations
+        if (resRes?.data) {
+          const formatted = resRes.data.map((r: any) => ({
+            id: r.id,
+            reservationNumber: r.reservation_number,
+            customerId: r.customer_id,
+            vehicleId: r.vehicle_id,
+            startDate: r.start_date,
+            endDate: r.end_date,
+            status: r.status,
+            totalAmount: r.total_amount || 0,
+            paidAmount: r.paid_amount || 0,
+            pickupAgencyId: r.pickup_agency_id || '',
+            returnAgencyId: r.return_agency_id || '',
+            driverId: r.driver_id,
+            cautionAmount: r.caution_amount || 0,
+            discount: r.discount || 0,
+            withTVA: r.with_tva || false,
+            options: r.options || [],
+            activationLog: r.activation_log,
+            terminationLog: r.termination_log
+          }));
+          setReservations(formatted);
+        }
+
+        // Process vehicles
+        if (vehiclesRes?.data) {
+          const formatted = vehiclesRes.data.map((v: any) => ({
+            id: v.id,
+            brand: v.brand,
+            model: v.model,
+            year: v.year,
+            immatriculation: v.immatriculation,
+            color: v.color,
+            chassisNumber: v.chassis_number,
+            fuelType: v.fuel_type,
+            transmission: v.transmission,
+            seats: v.seats,
+            doors: v.doors,
+            dailyRate: v.daily_rate,
+            weeklyRate: v.weekly_rate,
+            monthlyRate: v.monthly_rate,
+            deposit: v.deposit,
+            status: v.status,
+            currentLocation: v.current_location,
+            mileage: v.mileage,
+            insuranceExpiry: v.insurance_expiry,
+            techControlDate: v.tech_control_date,
+            insuranceInfo: v.insurance_info,
+            mainImage: v.main_image,
+            secondaryImages: v.secondary_images || [],
+            purchasePrice: v.purchase_price
+          }));
+          setVehicles(formatted);
+        }
+
+        // Process customers
+        if (customersRes?.data) {
+          const formatted = customersRes.data.map((c: any) => ({
+            id: c.id,
+            firstName: c.first_name,
+            lastName: c.last_name,
+            phone: c.phone,
+            email: c.email,
+            idCardNumber: c.id_card_number,
+            documentNumber: c.document_number,
+            wilaya: c.wilaya,
+            address: c.address,
+            licenseNumber: c.license_number,
+            licenseExpiry: c.license_expiry,
+            licenseIssueDate: c.license_issue_date,
+            licenseIssuePlace: c.license_issue_place,
+            profilePicture: c.profile_picture,
+            birthday: c.birthday,
+            birthPlace: c.birth_place,
+            documentType: c.document_type,
+            documentDeliveryDate: c.document_delivery_date,
+            documentDeliveryAddress: c.document_delivery_address,
+            documentExpiryDate: c.document_expiry_date,
+            documentImages: c.document_images || [],
+            documentLeftAtStore: c.document_left_at_store,
+            totalReservations: c.total_reservations || 0,
+            totalSpent: c.total_spent || 0
+          }));
+          setCustomers(formatted);
+        }
+
+        // Process maintenances
+        if (maintenanceRes?.data) {
+          const formatted = maintenanceRes.data.map((m: any) => ({
+            id: m.id,
+            vehicleId: m.vehicle_id,
+            vehicle_id: m.vehicle_id,
+            type: m.type,
+            name: m.name,
+            cost: m.cost,
+            date: m.date ? (typeof m.date === 'string' ? m.date.split('T')[0] : m.date) : '',
+            expiry_date: m.expiry_date ? (typeof m.expiry_date === 'string' ? m.expiry_date.split('T')[0] : m.expiry_date) : '',
+            expiryDate: m.expiry_date ? (typeof m.expiry_date === 'string' ? m.expiry_date.split('T')[0] : m.expiry_date) : '',
+            note: m.note,
+            next_vidange_km: m.next_vidange_km
+          }));
+          setMaintenances(formatted);
+        }
+      } catch (err) {
+        console.error('Dashboard data fetch error:', err);
+        setError('Failed to load dashboard data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadDashboardData();
+  }, []); // ✅ Fetch once on mount only
 
   const stats = useMemo(() => {
     const totalGains = reservations.reduce((acc, r) => acc + (r.paidAmount || 0), 0);
@@ -149,11 +288,39 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ lang, onNavigate, user, r
     }
   }[lang];
 
+  // 📊 Show loading state
+  if (loading) {
+    return (
+      <div className={`p-4 md:p-12 flex items-center justify-center min-h-screen ${isRtl ? 'font-arabic text-right' : ''}`}>
+        <div className="text-center">
+          <div className="mb-6 inline-block">
+            <div className="w-16 h-16 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin"></div>
+          </div>
+          <p className="text-xl font-black text-gray-600">Chargement du tableau de bord...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ⚠️ Show error state
+  if (error) {
+    return (
+      <div className={`p-4 md:p-12 flex items-center justify-center min-h-screen ${isRtl ? 'font-arabic text-right' : ''}`}>
+        <div className="text-center bg-red-50 p-8 rounded-[2rem] border border-red-200">
+          <p className="text-xl font-black text-red-600 mb-4">{error}</p>
+          <button onClick={() => window.location.reload()} className="px-6 py-3 bg-red-600 text-white rounded-full font-bold hover:bg-red-700">
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`p-4 md:p-12 animate-fade-in ${isRtl ? 'font-arabic text-right' : ''}`}>
       <div className="mb-16">
         <h1 className="text-6xl font-black text-gray-900 tracking-tighter mb-4">{t.adminTitle}</h1>
-        <p className="text-gray-400 font-bold uppercase text-[10px] tracking-[0.4em]">Mode Démonstration - Données Constantes</p>
+        <p className="text-gray-400 font-bold uppercase text-[10px] tracking-[0.4em]">✅ Données en Temps Réel - Base de Données</p>
       </div>
 
       {/* Alerts Section */}

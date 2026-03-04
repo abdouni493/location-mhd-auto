@@ -1,7 +1,8 @@
 
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Language, Vehicle, Agency } from '../types';
 import { supabase } from '../lib/supabase';
+import { apiPost } from '../lib/api';
 import GradientButton from '../components/GradientButton';
 
 interface VehiclesPageProps {
@@ -25,14 +26,67 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ lang, initialVehicles = [],
   const [activeModal, setActiveModal] = useState<{ type: ModalType; vehicle: Vehicle | null }>({ type: null, vehicle: null });
   const [searchTerm, setSearchTerm] = useState('');
   const [formImages, setFormImages] = useState<ImageItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [statusChangeLoading, setStatusChangeLoading] = useState<string | null>(null);
+  const [vehicles, setVehicles] = useState<Vehicle[]>(initialVehicles);
   
   const isRtl = lang === 'ar';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+
+  // 🚀 Fetch vehicles data efficiently on mount
+  useEffect(() => {
+    const loadVehicles = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const result = await apiPost('/api/from/vehicles/select', { columns: '*' });
+        
+        if (result?.data) {
+          const formatted = result.data.map((v: any) => ({
+            id: v.id,
+            brand: v.brand,
+            model: v.model,
+            year: v.year,
+            immatriculation: v.immatriculation,
+            color: v.color,
+            chassisNumber: v.chassis_number,
+            fuelType: v.fuel_type,
+            transmission: v.transmission,
+            seats: v.seats,
+            doors: v.doors,
+            dailyRate: v.daily_rate,
+            weeklyRate: v.weekly_rate,
+            monthlyRate: v.monthly_rate,
+            deposit: v.deposit,
+            status: v.status,
+            currentLocation: v.current_location,
+            mileage: v.mileage,
+            insuranceExpiry: v.insurance_expiry,
+            techControlDate: v.tech_control_date,
+            insuranceInfo: v.insurance_info,
+            mainImage: v.main_image,
+            secondaryImages: v.secondary_images || [],
+            purchasePrice: v.purchase_price
+          }));
+          setVehicles(formatted);
+        } else {
+          setVehicles([]);
+        }
+      } catch (err) {
+        console.error('Failed to load vehicles:', err);
+        setError('Erreur lors du chargement des véhicules');
+        setVehicles([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadVehicles();
+  }, []); // ✅ Fetch once on mount only
 
   const t = {
     fr: {
@@ -202,11 +256,39 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ lang, initialVehicles = [],
     }
   };
 
-  const filteredVehicles = initialVehicles.filter(v => 
+  const filteredVehicles = vehicles.filter(v => 
     v.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
     v.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
     v.immatriculation.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // 📊 Show loading state
+  if (loading && vehicles.length === 0) {
+    return (
+      <div className={`p-4 md:p-12 flex items-center justify-center min-h-screen ${isRtl ? 'font-arabic text-right' : ''}`}>
+        <div className="text-center">
+          <div className="mb-6 inline-block">
+            <div className="w-16 h-16 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin"></div>
+          </div>
+          <p className="text-xl font-black text-gray-600">Chargement des véhicules...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ⚠️ Show error state
+  if (error && vehicles.length === 0) {
+    return (
+      <div className={`p-4 md:p-12 flex items-center justify-center min-h-screen ${isRtl ? 'font-arabic text-right' : ''}`}>
+        <div className="text-center bg-red-50 p-8 rounded-[2rem] border border-red-200">
+          <p className="text-xl font-black text-red-600 mb-4">{error}</p>
+          <button onClick={() => window.location.reload()} className="px-6 py-3 bg-red-600 text-white rounded-full font-bold hover:bg-red-700">
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const SectionHeader = ({ title, icon, color }: { title: string; icon: string; color: string }) => (
     <div className={`flex items-center gap-4 border-b border-gray-100 pb-4 mb-8 ${color}`}>

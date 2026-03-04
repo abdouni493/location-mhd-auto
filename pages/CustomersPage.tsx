@@ -16,18 +16,106 @@ interface CustomersPageProps {
 
 type ModalType = 'details' | 'history' | 'delete' | null;
 
-const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservations, vehicles, onRefresh }) => {
+const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers: initialCustomers, reservations: initialReservations, vehicles, onRefresh }) => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [activeModal, setActiveModal] = useState<{ type: ModalType; customer: Customer | null }>({ type: null, customer: null });
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [displayCount, setDisplayCount] = useState(50);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // 🚀 Fresh data state
+  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
+  const [reservations, setReservations] = useState<Reservation[]>(initialReservations);
   
   // Form State for UI previews (Base64 strings)
   const [profilePreview, setProfilePreview] = useState<string | null>(null);
   const [docPreviews, setDocPreviews] = useState<string[]>([]);
+  
+  const isRtl = lang === 'ar';
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
+
+  // ⚡ Fetch customer data efficiently on mount
+  useEffect(() => {
+    const loadCustomersData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Fetch customers and reservations in parallel
+        const [customersRes, reservationsRes] = await Promise.all([
+          apiPost('/api/from/customers/select', { columns: '*' }),
+          apiPost('/api/from/reservations/select', { columns: '*' })
+        ]);
+
+        // Process customers
+        if (customersRes?.data) {
+          const formatted = customersRes.data.map((c: any) => ({
+            id: c.id,
+            firstName: c.first_name,
+            lastName: c.last_name,
+            phone: c.phone,
+            email: c.email,
+            idCardNumber: c.id_card_number,
+            documentNumber: c.document_number,
+            wilaya: c.wilaya,
+            address: c.address,
+            licenseNumber: c.license_number,
+            licenseExpiry: c.license_expiry,
+            licenseIssueDate: c.license_issue_date,
+            licenseIssuePlace: c.license_issue_place,
+            profilePicture: c.profile_picture,
+            birthday: c.birthday,
+            birthPlace: c.birth_place,
+            documentType: c.document_type,
+            documentDeliveryDate: c.document_delivery_date,
+            documentDeliveryAddress: c.document_delivery_address,
+            documentExpiryDate: c.document_expiry_date,
+            documentImages: c.document_images || [],
+            documentLeftAtStore: c.document_left_at_store,
+            totalReservations: c.total_reservations || 0,
+            totalSpent: c.total_spent || 0
+          }));
+          setCustomers(formatted);
+        }
+
+        // Process reservations
+        if (reservationsRes?.data) {
+          const formatted = reservationsRes.data.map((r: any) => ({
+            id: r.id,
+            reservationNumber: r.reservation_number,
+            customerId: r.customer_id,
+            vehicleId: r.vehicle_id,
+            startDate: r.start_date,
+            endDate: r.end_date,
+            status: r.status,
+            totalAmount: r.total_amount || 0,
+            paidAmount: r.paid_amount || 0,
+            pickupAgencyId: r.pickup_agency_id || '',
+            returnAgencyId: r.return_agency_id || '',
+            driverId: r.driver_id,
+            cautionAmount: r.caution_amount || 0,
+            discount: r.discount || 0,
+            withTVA: r.with_tva || false,
+            options: r.options || [],
+            activationLog: r.activation_log,
+            terminationLog: r.termination_log
+          }));
+          setReservations(formatted);
+        }
+      } catch (err) {
+        console.error('Failed to load customers data:', err);
+        setError('Erreur lors du chargement des clients');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCustomersData();
+  }, []); // ✅ Fetch once on mount only
   
   const isRtl = lang === 'ar';
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -346,6 +434,34 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers, reservat
     if (!raw) return '';
     return isDate ? toInputDate(raw) : String(raw);
   };
+
+  // 📊 Show loading state for initial page load
+  if (loading && customers.length === 0) {
+    return (
+      <div className={`p-4 md:p-12 flex items-center justify-center min-h-screen ${isRtl ? 'font-arabic text-right' : ''}`}>
+        <div className="text-center">
+          <div className="mb-6 inline-block">
+            <div className="w-16 h-16 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin"></div>
+          </div>
+          <p className="text-xl font-black text-gray-600">Chargement des clients...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ⚠️ Show error state
+  if (error && customers.length === 0) {
+    return (
+      <div className={`p-4 md:p-12 flex items-center justify-center min-h-screen ${isRtl ? 'font-arabic text-right' : ''}`}>
+        <div className="text-center bg-red-50 p-8 rounded-[2rem] border border-red-200">
+          <p className="text-xl font-black text-red-600 mb-4">{error}</p>
+          <button onClick={() => window.location.reload()} className="px-6 py-3 bg-red-600 text-white rounded-full font-bold hover:bg-red-700">
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (isFormOpen) {
     return (
