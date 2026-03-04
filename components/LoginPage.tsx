@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Language } from '../types';
 import { TRANSLATIONS } from '../constants';
 import { supabase } from '../lib/supabase';
+import { apiPost } from '../lib/api';
 import GradientButton from './GradientButton';
 
 interface LoginPageProps {
@@ -55,30 +56,34 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, lang, onLanguageToggle }
           });
         }
       } else {
-        // Try to login as worker - query Supabase directly
-        const { data: workers, error: queryError } = await supabase
-          .from('workers')
-          .select('id, username, role, password, is_active')
-          .eq('username', id)
-          .single();
+        // Try to login as worker - query Neon database via backend
+        const response = await apiPost('/api/from/workers/select', {
+          columns: 'id, username, role, password, is_active',
+          filters: { username: id }
+        });
 
-        if (queryError || !workers) {
+        const result = await response.json();
+        const workers = result.data || [];
+        
+        if (workers.length === 0) {
           throw new Error(lang === 'fr' ? "Utilisateur non trouvé" : "المستخدم غير موجود");
         }
 
+        const worker = workers[0];
+
         // Verify password (case-sensitive exact match)
-        if (workers.password !== pass) {
+        if (worker.password !== pass) {
           throw new Error(lang === 'fr' ? "Mot de passe incorrect" : "كلمة المرور غير صحيحة");
         }
 
         // Check if worker is active
-        if (!workers.is_active) {
+        if (!worker.is_active) {
           throw new Error(lang === 'fr' ? "Compte utilisateur désactivé" : "حساب المستخدم معطل");
         }
 
         onLogin({ 
-          username: workers.username, 
-          role: workers.role 
+          username: worker.username, 
+          role: worker.role 
         });
       }
     } catch (err: any) {
@@ -88,8 +93,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, lang, onLanguageToggle }
       // Check if it's a backend connection error
       if (err.message?.includes('Failed to fetch') || err.message?.includes('ERR_CONNECTION_REFUSED') || err.status === 0) {
         errorMessage = lang === 'fr' 
-          ? "Impossible de se connecter au serveur"
-          : "لا يمكن الاتصال بالخادم";
+          ? "Impossible de se connecter au serveur. Assurez-vous que le serveur est en cours d'exécution (npm run server)"
+          : "لا يمكن الاتصال بالخادم. تأكد من تشغيل الخادم (npm run server)";
       }
       
       setError(errorMessage);
