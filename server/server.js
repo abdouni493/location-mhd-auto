@@ -67,12 +67,12 @@ app.use(express.urlencoded({ limit: '200mb' }));
 // ============================================================
 const cache = new Map();
 const CACHE_CONFIG = {
-  customers: { ttl: 10 * 60 * 1000, maxSize: 500 }, // 10 min
-  vehicles: { ttl: 15 * 60 * 1000, maxSize: 500 }, // 15 min
-  agencies: { ttl: 30 * 60 * 1000, maxSize: 100 }, // 30 min
-  workers: { ttl: 10 * 60 * 1000, maxSize: 200 }, // 10 min
-  reservations: { ttl: 2 * 60 * 1000, maxSize: 1000 }, // 2 min (changes frequently)
-  dashboard: { ttl: 3 * 60 * 1000, maxSize: 50 } // 3 min
+  customers: { ttl: 5 * 60 * 1000, maxSize: 50 }, // 5 min, max 50 cached queries
+  vehicles: { ttl: 5 * 60 * 1000, maxSize: 50 }, // 5 min, max 50 cached queries
+  agencies: { ttl: 15 * 60 * 1000, maxSize: 20 }, // 15 min, max 20 cached queries
+  workers: { ttl: 5 * 60 * 1000, maxSize: 30 }, // 5 min, max 30 cached queries
+  reservations: { ttl: 2 * 60 * 1000, maxSize: 30 }, // 2 min, max 30 (changes frequently)
+  dashboard: { ttl: 1 * 60 * 1000, maxSize: 10 } // 1 min, max 10 (real-time)
 };
 
 function getFromCache(key) {
@@ -347,11 +347,11 @@ app.post('/api/from/:table/select', async (req, res) => {
     
     // Add LIMIT clause if specified (or default to 500 for safety)
     if (limit && !isNaN(limit)) {
-      const safeLimit = Math.max(1, Math.min(parseInt(limit), 10000));
+      const safeLimit = Math.max(1, Math.min(parseInt(limit), 1000));
       q += ` LIMIT ${safeLimit}`;
     } else {
-      // Default limit to prevent fetching too many rows
-      q += ` LIMIT 500`;
+      // Default limit to prevent fetching too many rows and exhausting memory
+      q += ` LIMIT 100`;
     }
     
     const start = Date.now();
