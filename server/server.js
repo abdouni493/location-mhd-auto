@@ -45,8 +45,17 @@ const corsOptions = {
 // Apply CORS globally - MUST be before routes
 app.use(cors(corsOptions));
 
-// Handle preflight requests explicitly for ALL routes
-app.options('*', cors(corsOptions));
+// Handle preflight (OPTIONS) requests for all routes using middleware
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With');
+    res.header('Access-Control-Max-Age', '86400');
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ limit: '200mb' }));
