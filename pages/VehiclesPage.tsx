@@ -30,13 +30,13 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ lang, initialVehicles = [],
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [statusChangeLoading, setStatusChangeLoading] = useState<string | null>(null);
-  const [vehicles, setVehicles] = useState<Vehicle[]>(initialVehicles);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   
   const isRtl = lang === 'ar';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
-  // 🚀 Fetch vehicles data efficiently on mount
+  // 🚀 Fetch vehicles data efficiently on mount - ONLY ONCE
   useEffect(() => {
     const loadVehicles = async () => {
       try {
@@ -72,6 +72,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ lang, initialVehicles = [],
             secondaryImages: v.secondary_images || [],
             purchasePrice: v.purchase_price
           }));
+          console.log('[VEHICLES LOADED]', formatted.length, 'vehicles fetched');
           setVehicles(formatted);
         } else {
           setVehicles([]);
@@ -86,7 +87,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ lang, initialVehicles = [],
     };
 
     loadVehicles();
-  }, []); // ✅ Fetch once on mount only
+  }, []); // ✅ Fetch ONCE on mount only - no dependencies
 
   const t = {
     fr: {
