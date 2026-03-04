@@ -22,12 +22,23 @@ process.on('unhandledRejection', (err) => {
 // MIDDLEWARE - Enable compression for faster responses
 // ============================================================
 app.use(compression());
+
+// Enhanced CORS configuration
 app.use(cors({
-  origin: '*',
+  origin: function(origin, callback) {
+    // Allow all origins for now (can be restricted later)
+    callback(null, true);
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: false
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['X-Total-Count', 'X-Page-Number'],
+  credentials: false,
+  maxAge: 86400 // 24 hours
 }));
+
+// Handle preflight requests explicitly
+app.options('*', cors());
+
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ limit: '200mb' }));
 
@@ -333,9 +344,13 @@ app.post('/api/from/:table/select', async (req, res) => {
 app.post('/api/from/:table/insert', async (req, res) => {
   const table = req.params.table;
   const { rows } = req.body || {};
+  
   if (!isSafeIdentifier(table)) return res.status(400).json({ data: null, error: { message: 'Invalid table' } });
   if (!rows || !Array.isArray(rows) || rows.length === 0) return res.json({ data: [], error: null });
+  
   try {
+    console.log(`[INSERT REQUEST] table=${table}, rowCount=${rows.length}, firstRow:`, JSON.stringify(rows[0]).substring(0, 200));
+    
     // For workers, clean up blob URLs and invalid photo data
     const cleanedRows = rows.map(row => {
       const cleanRow = { ...row };
@@ -351,6 +366,8 @@ app.post('/api/from/:table/insert', async (req, res) => {
     console.log(`[INSERT PROCESSING] table=${table}, rowCount=${cleanedRows.length}`);
     
     const { text, values } = buildInsertQuery(table, cleanedRows);
+    console.log(`[INSERT QUERY] ${text.substring(0, 150)}...`);
+    
     const start = Date.now();
     const r = await pool.query(text, values);
     const duration = Date.now() - start;
