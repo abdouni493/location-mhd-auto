@@ -20,11 +20,22 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ lang, onNavigate, user, r
     const rentedCount = vehicles.filter(v => v.status === 'loué').length;
     const totalVehicles = vehicles.length;
     
+    // Calculate total locations (all reservations)
+    const totalLocations = reservations.length || 0;
+    
+    // Calculate total investment (sum of purchase prices)
+    const totalInvestissement = vehicles.reduce((acc, v) => {
+      const price = Number(v.purchasePrice || v.purchase_price || 0);
+      return acc + (isNaN(price) ? 0 : price);
+    }, 0);
+    
     return {
       totalGains,
       rentedCount,
       totalVehicles,
       customerCount: customers.length,
+      totalLocations,
+      totalInvestissement,
       utilization: totalVehicles > 0 ? Math.round((rentedCount / totalVehicles) * 100) : 0,
     };
   }, [reservations, vehicles, customers]);
@@ -198,26 +209,36 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ lang, onNavigate, user, r
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
         <div className="bg-white p-10 rounded-[3.5rem] shadow-sm border border-gray-100 relative overflow-hidden group">
           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">{t.revenue}</p>
-          <p className="text-5xl font-black text-blue-600 tracking-tighter">{stats.totalGains.toLocaleString()} <span className="text-sm font-bold opacity-30">DZ</span></p>
+          <p className="text-4xl font-black text-blue-600 tracking-tighter">{stats.totalGains.toLocaleString()} <span className="text-sm font-bold opacity-30">DZ</span></p>
         </div>
 
         <div className="bg-gray-900 p-10 rounded-[3.5rem] shadow-2xl text-white">
           <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-4">Utilisation Flotte</p>
-          <p className="text-7xl font-black text-white leading-none mb-2">{stats.utilization}%</p>
+          <p className="text-5xl font-black text-white leading-none mb-2">{stats.utilization}%</p>
           <p className="text-xs font-bold opacity-60 uppercase">{stats.rentedCount} / {stats.totalVehicles} Voitures</p>
         </div>
 
         <div className="bg-white p-10 rounded-[3.5rem] shadow-sm border border-gray-100">
           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Clients</p>
-          <p className="text-5xl font-black text-gray-900 tracking-tighter">{stats.customerCount}</p>
+          <p className="text-5xl font-black text-gray-900 tracking-tighter">{stats.customerCount || 0}</p>
         </div>
 
         <div className="bg-blue-600 p-10 rounded-[3.5rem] text-white">
           <p className="text-[10px] font-black uppercase tracking-widest mb-4">Missions actives</p>
-          <p className="text-5xl font-black">{reservations.filter(r => r.status === 'en cours').length}</p>
+          <p className="text-5xl font-black">{reservations.filter(r => r.status === 'en cours').length || 0}</p>
+        </div>
+
+        <div className="bg-gradient-to-br from-purple-600 to-indigo-600 p-10 rounded-[3.5rem] text-white">
+          <p className="text-[10px] font-black uppercase tracking-widest mb-4">💼 Missions Total</p>
+          <p className="text-5xl font-black">{stats.totalLocations || 0}</p>
+        </div>
+
+        <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-10 rounded-[3.5rem] text-white col-span-1 md:col-span-1 lg:col-span-1">
+          <p className="text-[10px] font-black uppercase tracking-widest mb-4">📊 Investissement</p>
+          <p className="text-4xl font-black leading-tight">{(stats.totalInvestissement / 1000000).toLocaleString('fr-FR', {maximumFractionDigits: 1})} <span className="text-xs">M DZ</span></p>
         </div>
       </div>
 

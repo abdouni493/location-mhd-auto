@@ -1490,43 +1490,39 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                             birth_place: newClientData.birthPlace || null
                           };
 
-                          // OPTIMISTIC UPDATE: Set customer ID immediately (with placeholder UUID) for fast UX
-                          const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-                          const optimisticCustomer = { ...dbData, id: tempId };
+                          // 🔴 IMPORTANT: Wait for backend response and GET REAL ID
+                          const result = await apiPost('/api/from/customers/insert', [dbData]);
                           
-                          // Optimistically update form with placeholder customer
-                          setFormData(prev => ({...prev, customerId: tempId}));
-                          setIsCreatingNewClient(false);
-                          
-                          // Send to backend - let this happen in background
-                          apiPost('/api/from/customers/insert', [dbData])
-                            .then((result: any) => {
-                              // Get the real ID from server response
-                              const inserted = Array.isArray(result?.data) && result.data.length > 0 ? result.data[0] : result?.data;
-                              if (!inserted || !inserted.id) throw new Error('No ID returned from server');
-                              
-                              // UPDATE form with real customer ID
-                              setFormData(prev => ({...prev, customerId: inserted.id}));
-                              console.log('✅ Customer created with ID:', inserted.id);
-                            })
-                            .catch((err: any) => {
-                              console.error('❌ Background customer creation failed:', err);
-                              // Revert optimistic update on error
-                              setFormData(prev => ({...prev, customerId: undefined}));
-                              alert('❌ Erreur lors de la création du client: ' + (err?.message || err));
-                            });
+                          // Check if response contains created customer data
+                          if (!result || !result.data || result.data.length === 0) {
+                            throw new Error('Backend did not return created customer');
+                          }
 
-                          // Reset form immediately for responsive UX
+                          const createdCustomer = result.data[0];
+                          
+                          // 🔴 CRITICAL: Verify we have a REAL ID from database
+                          if (!createdCustomer.id) {
+                            throw new Error('Backend returned customer without ID');
+                          }
+
+                          // 🟢 NOW set the customer with REAL ID
+                          setFormData(prev => ({...prev, customerId: createdCustomer.id}));
+                          setIsCreatingNewClient(false);
                           setNewClientData({ wilaya: '16 - Alger', documentImages: [], profilePicture: 'https://via.placeholder.com/200' });
                           setProfilePreviewNew(null);
                           setDocPreviewsNew([]);
-                          // Automatically advance to step 5 (services & options)
+                          
+                          // Move to next step ONLY after successful DB save
                           setCreationStep(5);
                           onAddReservation?.();
+                          
+                          console.log('✅ Customer created with REAL ID:', createdCustomer.id);
                         } catch (err: any) {
-                          console.error(err);
+                          console.error('❌ Client creation error:', err);
                           setLoading(false);
                           alert('❌ Erreur: ' + (err?.message || err));
+                        } finally { 
+                          setLoading(false); 
                         }
                       }} className="flex-[2] !py-5 rounded-2xl shadow-2xl text-lg">✅ Créer & Valider</GradientButton>
                     </div>
