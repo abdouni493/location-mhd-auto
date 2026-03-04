@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Language } from '../types';
 import { TRANSLATIONS } from '../constants';
-import { supabase } from '../lib/supabase';
 import { apiPost } from '../lib/api';
 import GradientButton from './GradientButton';
 
@@ -37,24 +36,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, lang, onLanguageToggle }
       const id = identifier.trim();
       const pass = password.trim();
 
-      // Check if it's admin account
-      const isAdmin = id.toLowerCase() === 'admin@admin.com';
+      // Check if it's admin account (hardcoded for now)
+      const isAdmin = id.toLowerCase() === 'admin@admin.com' && pass === 'admin123';
       
       if (isAdmin) {
-        // Try Supabase auth for admin
-        const { data, error: authError } = await supabase.auth.signInWithPassword({
-          email: id,
-          password: pass,
+        // Admin login
+        onLogin({ 
+          username: 'admin', 
+          role: 'admin' 
         });
-
-        if (authError) throw authError;
-
-        if (data.user) {
-          onLogin({ 
-            username: id.split('@')[0], 
-            role: 'admin' 
-          });
-        }
       } else {
         // Try to login as worker - query Neon database via backend
         const response = await apiPost('/api/from/workers/select', {
