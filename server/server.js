@@ -27,6 +27,8 @@ app.use(compression());
 const corsOptions = {
   origin: [
     'https://location-mhd-auto.vercel.app',
+    'https://location-mhd-auto-git-main-youssefs-projects-87b30820.vercel.app',
+    'https://location-mhd-auto-nz1bhmsdd-youssefs-projects-87b30820.vercel.app',
     'https://location-mhd-auto-llcis11op-youssefs-projects-87b30820.vercel.app',
     'https://location-mhd-auto.fly.dev',
     'http://localhost:5173',
