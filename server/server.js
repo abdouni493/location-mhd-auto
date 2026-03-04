@@ -149,39 +149,52 @@ const createRentalOptionsSQL = `
 let dbReady = false;
 
 const initDb = async () => {
-  while (true) {
+  let retryCount = 0;
+  const maxRetries = 60; // Try for 5 minutes
+  
+  while (retryCount < maxRetries) {
     try {
       const r = await testConnection(5);
-      console.log('Database connected successfully', r);
+      console.log('✅ Database connected successfully', r);
 
       // Ensure required tables exist
       try {
         await pool.query(createTableSQL);
-        console.log('inspection_templates table ready');
+        console.log('✅ inspection_templates table ready');
       } catch (e) {
-        console.error('Error creating inspection_templates table:', e.message || e);
+        console.warn('⚠️ Error creating inspection_templates table:', e.message || e);
       }
 
       try {
         await pool.query(createRentalOptionsSQL);
-        console.log('rental_options table ready');
+        console.log('✅ rental_options table ready');
       } catch (e) {
-        console.error('Error creating rental_options table:', e.message || e);
+        console.warn('⚠️ Error creating rental_options table:', e.message || e);
       }
 
       dbReady = true;
+      console.log('✅ DATABASE INITIALIZATION COMPLETE');
       break;
     } catch (err) {
-      console.error('Database connection failed:', err && err.message ? err.message : err);
-      console.error('Error code:', err && err.code ? err.code : 'N/A');
-      console.error('Stack:', err && err.stack ? err.stack : 'N/A');
-      // Mask connection string when logging
-      try {
-        const masked = connectionString.replace(/(postgresql:\/\/)([^:@]+):([^@]+)@/, '$1$2:*****@');
-        console.error('DB connection string (masked):', masked);
-      } catch (e) {}
-      console.error('Retrying in 5 seconds...');
-      await new Promise((r) => setTimeout(r, 5000));
+      retryCount++;
+      const elapsedSeconds = retryCount * 5;
+      console.error(`❌ [${elapsedSeconds}s] Database connection failed (attempt ${retryCount}/${maxRetries}):`, err && err.message ? err.message : err);
+      
+      if (err && err.code) {
+        console.error('   Error code:', err.code);
+      }
+      if (retryCount % 2 === 0) {
+        console.error('   Note: Check that NEON_DATABASE_URL env var is set correctly');
+      }
+      
+      if (retryCount < maxRetries) {
+        console.log('   Retrying in 5 seconds...');
+        await new Promise((r) => setTimeout(r, 5000));
+      } else {
+        console.error('❌ Max retries reached. Server will continue without database.');
+        dbReady = false;
+        break;
+      }
     }
   }
 };
@@ -891,9 +904,37 @@ const port = process.env.PORT || 4000;
 
 // Start HTTP server immediately so frontend can reach API even while DB init retries
 // Listen on 0.0.0.0 to accept connections from any interface (required for Fly.io, Render, Heroku)
-app.listen(port, '0.0.0.0', () => console.log(`DB proxy server listening on http://0.0.0.0:${port} (port ${port})`));
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`\n🚀 Server started on http://0.0.0.0:${port} (Fly.io port: ${port})`);
+  console.log(`📊 Endpoints ready at https://location-mhd-auto.fly.dev`);
+  console.log(`⏳ Initializing database connection...\n`);
+});
 
 // Initialize DB in background (will retry until connected)
-initDb().catch((err) => {
-  console.error('DB initialization failed (background):', err);
+// DO NOT wait for this - server should be responsive even if DB init is pending
+initDb()
+  .then(() => {
+    console.log('\n✅ Database initialization complete. API fully operational.\n');
+  })
+  .catch((err) => {
+    console.error('\n❌ Database initialization failed:', err);
+    console.error('⚠️  Server running but API endpoints will return 503 until database is available.\n');
+  });
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('\n📢 SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('✅ HTTP server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('\n📢 SIGINT signal received: closing HTTP server');
+  server.close(() => {
+    console.log('✅ HTTP server closed');
+    process.exit(0);
+  });
+});
 });
