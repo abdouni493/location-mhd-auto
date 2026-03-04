@@ -172,6 +172,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ lang, initialVehicles = [],
     const secondaryImgs = formImages.filter(img => !img.isPrincipal).map(img => img.url);
 
     const dbData = {
+      ...(editingVehicle && { id: editingVehicle.id }),
       brand: fd.get('brand') as string,
       model: fd.get('model') as string,
       year: parseInt(fd.get('year') as string),
@@ -199,23 +200,20 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ lang, initialVehicles = [],
     try {
       setError(null);
       setSuccess(null);
-      if (editingVehicle) {
-        const result = await supabase.from('vehicles').update(dbData).eq('id', editingVehicle.id);
-        console.log('[UPDATE Vehicle]', result);
-        if (result.error) {
-          setError(`Update failed: ${JSON.stringify(result.error)}`);
-          return;
-        }
-        setSuccess('Vehicle updated successfully!');
-      } else {
-        const result = await supabase.from('vehicles').insert([dbData]);
-        console.log('[INSERT Vehicle]', result);
-        if (result.error) {
-          setError(`Insert failed: ${JSON.stringify(result.error)}`);
-          return;
-        }
-        setSuccess('Vehicle created successfully!');
+      
+      // Use upsert to handle duplicates gracefully
+      const result = await apiPost('/api/from/vehicles/upsert', { 
+        rows: [dbData],
+        onConflict: 'immatriculation'  // Use immatriculation as conflict key
+      });
+      
+      console.log('[UPSERT Vehicle]', result);
+      if (result.error) {
+        setError(`Save failed: ${result.error.message || JSON.stringify(result.error)}`);
+        setLoading(false);
+        return;
       }
+      setSuccess(editingVehicle ? 'Vehicle updated successfully!' : 'Vehicle created successfully!');
       setTimeout(() => {
         onUpdate();
         handleCloseForm();
