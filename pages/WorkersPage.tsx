@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Language, Worker, Role, WorkerTransaction } from '../types';
 import GradientButton from '../components/GradientButton';
-import { apiFetch, apiPost } from '../lib/api';
+import { supabase } from '../lib/supabase';
 
 interface WorkersPageProps {
   lang: Language;
@@ -142,21 +142,22 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
     });
   };
 
-  // Fetch workers from Neon database
+  // Fetch workers from Neon database via Supabase
   const fetchWorkers = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const response = await apiPost('/api/from/workers/select', { columns: '*' });
+      const { data, error } = await supabase
+        .from('workers')
+        .select('*');
 
-      const result = await response.json();
-
-      if (result.error) {
+      if (error) {
+        console.error('Supabase error:', error);
         setError(currentT.errorLoading);
         setWorkers([]);
       } else {
-        setWorkers(result.data || []);
+        setWorkers(data || []);
       }
     } catch (err) {
       console.error('Error fetching workers:', err);
@@ -188,12 +189,12 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
   const handleDeleteWorker = async (id: string) => {
     try {
       setSaving(true);
-      const response = await apiPost('/api/from/workers/delete', {
-        where: { col: 'id', val: id }
-      });
+      const { error } = await supabase
+        .from('workers')
+        .delete()
+        .eq('id', id);
 
-      const result = await response.json();
-      if (!result.error) {
+      if (!error) {
         fetchWorkers();
         onUpdate();
       }
@@ -236,21 +237,22 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
         created_at: editingWorker?.id ? undefined : new Date().toISOString()
       };
 
-      let response;
+      let result;
       if (editingWorker?.id) {
         // Update existing worker
-        response = await apiPost('/api/from/workers/update', {
-          data: workerData,
-          where: { col: 'id', val: editingWorker.id }
-        });
+        const { error } = await supabase
+          .from('workers')
+          .update(workerData)
+          .eq('id', editingWorker.id);
+        result = { error };
       } else {
         // Insert new worker
-        response = await apiPost('/api/from/workers/insert', {
-          rows: [workerData]
-        });
+        const { error } = await supabase
+          .from('workers')
+          .insert([workerData]);
+        result = { error };
       }
 
-      const result = await response.json();
       if (!result.error) {
         handleCloseForm();
         fetchWorkers();
@@ -291,13 +293,12 @@ const WorkersPage: React.FC<WorkersPageProps> = ({ lang, onUpdate }) => {
         updateData.absences = (worker.absences || 0) + 1;
       }
 
-      const response = await apiPost('/api/from/workers/update', {
-        data: updateData,
-        where: { col: 'id', val: workerId }
-      });
+      const { error } = await supabase
+        .from('workers')
+        .update(updateData)
+        .eq('id', workerId);
 
-      const result = await response.json();
-      if (!result.error) {
+      if (!error) {
         fetchWorkers();
         onUpdate();
       }
