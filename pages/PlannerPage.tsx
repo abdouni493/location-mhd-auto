@@ -6,6 +6,7 @@ import {
 } from '../types';
 import { ALGERIAN_WILAYAS } from '../constants';
 import { supabase } from '../lib/supabase';
+import { apiPost } from '../lib/api';
 import GradientButton from '../components/GradientButton';
 import DocumentPersonalizer from '../components/DocumentPersonalizer';
 interface PlannerPageProps { 
@@ -1489,11 +1490,33 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                             birth_place: newClientData.birthPlace || null
                           };
 
-                          const resultInsert = await supabase.from('customers').insert([dbData]);
-                          const inserted = Array.isArray((resultInsert as any).data) && (resultInsert as any).data.length > 0 ? (resultInsert as any).data[0] : (resultInsert as any).data;
-                          if ((resultInsert as any).error || !inserted) throw (resultInsert as any).error || new Error('Insertion failed');
-                          setFormData(prev => ({...prev, customerId: inserted.id}));
+                          // OPTIMISTIC UPDATE: Set customer ID immediately (with placeholder UUID) for fast UX
+                          const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+                          const optimisticCustomer = { ...dbData, id: tempId };
+                          
+                          // Optimistically update form with placeholder customer
+                          setFormData(prev => ({...prev, customerId: tempId}));
                           setIsCreatingNewClient(false);
+                          
+                          // Send to backend - let this happen in background
+                          apiPost('/api/from/customers/insert', [dbData])
+                            .then((result: any) => {
+                              // Get the real ID from server response
+                              const inserted = Array.isArray(result?.data) && result.data.length > 0 ? result.data[0] : result?.data;
+                              if (!inserted || !inserted.id) throw new Error('No ID returned from server');
+                              
+                              // UPDATE form with real customer ID
+                              setFormData(prev => ({...prev, customerId: inserted.id}));
+                              console.log('✅ Customer created with ID:', inserted.id);
+                            })
+                            .catch((err: any) => {
+                              console.error('❌ Background customer creation failed:', err);
+                              // Revert optimistic update on error
+                              setFormData(prev => ({...prev, customerId: undefined}));
+                              alert('❌ Erreur lors de la création du client: ' + (err?.message || err));
+                            });
+
+                          // Reset form immediately for responsive UX
                           setNewClientData({ wilaya: '16 - Alger', documentImages: [], profilePicture: 'https://via.placeholder.com/200' });
                           setProfilePreviewNew(null);
                           setDocPreviewsNew([]);
@@ -1502,8 +1525,9 @@ const PlannerPage: React.FC<PlannerPageProps> = ({
                           onAddReservation?.();
                         } catch (err: any) {
                           console.error(err);
+                          setLoading(false);
                           alert('❌ Erreur: ' + (err?.message || err));
-                        } finally { setLoading(false); }
+                        }
                       }} className="flex-[2] !py-5 rounded-2xl shadow-2xl text-lg">✅ Créer & Valider</GradientButton>
                     </div>
                   </div>
