@@ -116,10 +116,6 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ lang, customers: initialC
 
     loadCustomersData();
   }, []); // ✅ Fetch once on mount only
-  
-  const isRtl = lang === 'ar';
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const docInputRef = useRef<HTMLInputElement>(null);
 
   const t = {
     fr: {
