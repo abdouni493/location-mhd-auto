@@ -9,11 +9,11 @@
 -- 1. CUSTOMER TABLE OPTIMIZATION
 -- ==========================================================================
 
-CREATE INDEX IF NOT EXISTS idx_customers_status ON public.customers(status) WHERE status IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON public.customers(phone);
 CREATE INDEX IF NOT EXISTS idx_customers_first_last ON public.customers(first_name, last_name);
 CREATE INDEX IF NOT EXISTS idx_customers_created_at ON public.customers(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_customers_wilaya ON public.customers(wilaya);
+CREATE INDEX IF NOT EXISTS idx_customers_id_card ON public.customers(id_card_number);
 
 -- ==========================================================================
 -- 2. VEHICLE TABLE OPTIMIZATION
@@ -45,7 +45,6 @@ CREATE INDEX IF NOT EXISTS idx_reservations_pickup_return ON public.reservations
 
 CREATE INDEX IF NOT EXISTS idx_workers_phone ON public.workers(phone);
 CREATE INDEX IF NOT EXISTS idx_workers_email ON public.workers(email);
-CREATE INDEX IF NOT EXISTS idx_workers_status ON public.workers(status);
 CREATE INDEX IF NOT EXISTS idx_workers_created_at ON public.workers(created_at DESC);
 
 -- ==========================================================================
@@ -54,7 +53,6 @@ CREATE INDEX IF NOT EXISTS idx_workers_created_at ON public.workers(created_at D
 
 CREATE INDEX IF NOT EXISTS idx_maintenance_vehicle_id ON public.maintenance(vehicle_id);
 CREATE INDEX IF NOT EXISTS idx_maintenance_type ON public.maintenance(type);
-CREATE INDEX IF NOT EXISTS idx_maintenance_status ON public.maintenance(status);
 CREATE INDEX IF NOT EXISTS idx_maintenance_next_vidange ON public.maintenance(next_vidange_km);
 
 -- ==========================================================================
