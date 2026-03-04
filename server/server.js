@@ -23,37 +23,30 @@ process.on('unhandledRejection', (err) => {
 // ============================================================
 app.use(compression());
 
-// CORS configuration - Allow all origins including Vercel
+// CORS configuration - Allow Vercel and local development
 const corsOptions = {
-  origin: function(origin, callback) {
-    // List of allowed origins
-    const allowedOrigins = [
-      'https://location-mhd-auto.vercel.app',
-      'https://location-mhd-auto.fly.dev',
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://localhost:4000',
-      'http://127.0.0.1:5173',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:4000'
-    ];
-    
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      // Still allow but log it
-      console.warn(`[CORS] Request from origin: ${origin}`);
-      callback(null, true); // Allow anyway to not break anything
-    }
-  },
+  origin: [
+    'https://location-mhd-auto.vercel.app',
+    'https://location-mhd-auto-llcis11op-youssefs-projects-87b30820.vercel.app',
+    'https://location-mhd-auto.fly.dev',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://localhost:4000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:4000'
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['X-Total-Count', 'X-Page-Number', 'X-Request-Id'],
   credentials: false,
   maxAge: 86400
 };
 
+// Apply CORS globally - MUST be before routes
 app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly for ALL routes
+app.options('*', cors(corsOptions));
 
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ limit: '200mb' }));
