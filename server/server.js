@@ -67,12 +67,13 @@ app.use(express.urlencoded({ limit: '200mb' }));
 // ============================================================
 const cache = new Map();
 const CACHE_CONFIG = {
-  customers: { ttl: 5 * 60 * 1000, maxSize: 50 }, // 5 min, max 50 cached queries
-  vehicles: { ttl: 5 * 60 * 1000, maxSize: 50 }, // 5 min, max 50 cached queries
-  agencies: { ttl: 15 * 60 * 1000, maxSize: 20 }, // 15 min, max 20 cached queries
-  workers: { ttl: 5 * 60 * 1000, maxSize: 30 }, // 5 min, max 30 cached queries
-  reservations: { ttl: 2 * 60 * 1000, maxSize: 30 }, // 2 min, max 30 (changes frequently)
-  dashboard: { ttl: 1 * 60 * 1000, maxSize: 10 } // 1 min, max 10 (real-time)
+  customers: { ttl: 10 * 60 * 1000, maxSize: 50 }, // 10 min
+  vehicles: { ttl: 10 * 60 * 1000, maxSize: 50 }, // 10 min
+  agencies: { ttl: 15 * 60 * 1000, maxSize: 20 }, // 15 min
+  workers: { ttl: 10 * 60 * 1000, maxSize: 30 }, // 10 min
+  reservations: { ttl: 5 * 60 * 1000, maxSize: 30 }, // 5 min (changes frequently)
+  maintenance: { ttl: 5 * 60 * 1000, maxSize: 30 }, // 5 min
+  dashboard: { ttl: 5 * 60 * 1000, maxSize: 10 } // 5 min
 };
 
 function getFromCache(key) {
@@ -150,12 +151,15 @@ let dbReady = false;
 
 const initDb = async () => {
   let retryCount = 0;
-  const maxRetries = 60; // Try for 5 minutes
+  const maxRetries = 12; // Try for 2 minutes
   
   while (retryCount < maxRetries) {
     try {
-      const r = await testConnection(5);
-      console.log('✅ Database connected successfully', r);
+      console.log(`⏳ Attempting database connection (${retryCount + 1}/${maxRetries})...`);
+      
+      // Simple direct connection test
+      const result = await pool.query('SELECT 1 as test');
+      console.log('✅ Database connected successfully');
 
       // Ensure required tables exist
       try {
@@ -173,25 +177,17 @@ const initDb = async () => {
       }
 
       dbReady = true;
-      console.log('✅ DATABASE INITIALIZATION COMPLETE');
+      console.log('✅ DATABASE INITIALIZATION COMPLETE - All API endpoints now available\n');
       break;
     } catch (err) {
       retryCount++;
-      const elapsedSeconds = retryCount * 5;
-      console.error(`❌ [${elapsedSeconds}s] Database connection failed (attempt ${retryCount}/${maxRetries}):`, err && err.message ? err.message : err);
-      
-      if (err && err.code) {
-        console.error('   Error code:', err.code);
-      }
-      if (retryCount % 2 === 0) {
-        console.error('   Note: Check that NEON_DATABASE_URL env var is set correctly');
-      }
+      console.error(`❌ Database connection failed (attempt ${retryCount}/${maxRetries}):`, err.message);
       
       if (retryCount < maxRetries) {
-        console.log('   Retrying in 5 seconds...');
-        await new Promise((r) => setTimeout(r, 5000));
+        console.log(`   Will retry in 10 seconds...`);
+        await new Promise((r) => setTimeout(r, 10000));
       } else {
-        console.error('❌ Max retries reached. Server will continue without database.');
+        console.error('❌ Max retries reached. Database may not be available.');
         dbReady = false;
         break;
       }
