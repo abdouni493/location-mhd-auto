@@ -24,7 +24,11 @@ import WorkersPage from './pages/WorkersPage';
 import ExpensesPage from './pages/ExpensesPage';
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
+  // Load user from localStorage if available
+  const [user, setUser] = useState<User | null>(() => {
+    const savedUser = localStorage.getItem('app.user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
   const [lang, setLang] = useState<Language>('fr');
   const [activePage, setActivePage] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -44,6 +48,15 @@ const App: React.FC = () => {
     phone: '',
     email: ''
   });
+
+  // Persist user to localStorage whenever it changes
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('app.user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('app.user');
+    }
+  }, [user]);
 
   const fetchSystemConfig = async () => {
     try {
@@ -287,8 +300,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     setUser(null);
+    localStorage.removeItem('app.user');
   };
 
   const renderPage = () => {
